@@ -13,8 +13,8 @@ import com.interviewprep.node.service.dto.ExpandTopicResponse;
 import com.interviewprep.node.service.dto.ExpandedChild;
 import com.interviewprep.node.service.dto.ResourceView;
 import com.interviewprep.node.service.llm.LabelNormalizer;
-import com.interviewprep.node.service.llm.ProposedChild;
-import com.interviewprep.node.service.llm.TopicExpander;
+import com.interviewprep.node.service.llm.expansion.ProposedChild;
+import com.interviewprep.node.service.llm.expansion.TopicExpander;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -190,8 +190,9 @@ public class ExpansionService {
                                   proposal.isCore(),
                                   false);
                           topicRepository.saveAndFlush(created); // force the constraint check now
-                          // TODO: enqueue enrichment (search resources + generate concepts) — no
-                          // queue exists yet.
+                          // TODO: enqueue a call to EnrichmentService.enrichTopic(created.getId())
+                          // once an async job queue exists — enrichment has no latency budget and
+                          // must not be called directly from this sync 3-5s pipeline.
                           return created;
                         });
             return new ResolvedChild(

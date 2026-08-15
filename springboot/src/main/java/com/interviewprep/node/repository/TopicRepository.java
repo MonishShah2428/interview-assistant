@@ -1,7 +1,9 @@
 package com.interviewprep.node.repository;
 
+import com.interviewprep.node.entity.EnrichmentStatus;
 import com.interviewprep.node.entity.ExpansionStatus;
 import com.interviewprep.node.entity.Topic;
+import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -41,4 +43,33 @@ public interface TopicRepository extends JpaRepository<Topic, Long> {
   @Query("UPDATE Topic t SET t.expansionStatus = :status WHERE t.id = :topicId")
   int updateExpansionStatus(
       @Param("topicId") Long topicId, @Param("status") ExpansionStatus status);
+
+  /**
+   * Atomic claim: flips the topic to {@code enriching} only if currently in a claimable state. Same
+   * shape as {@link #claimForExpansion} — enrichment_status fails independently of
+   * expansion_status, so it gets its own claim.
+   */
+  @Modifying
+  @Query(
+      "UPDATE Topic t SET t.enrichmentStatus = :enriching "
+          + "WHERE t.id = :topicId AND t.enrichmentStatus IN :claimableStatuses")
+  int claimForEnrichment(
+      @Param("topicId") Long topicId,
+      @Param("enriching") EnrichmentStatus enriching,
+      @Param("claimableStatuses") Collection<EnrichmentStatus> claimableStatuses);
+
+  /** Unconditional enrichment-status transition, used once the caller already owns the topic. */
+  @Modifying
+  @Query("UPDATE Topic t SET t.enrichmentStatus = :status WHERE t.id = :topicId")
+  int updateEnrichmentStatus(
+      @Param("topicId") Long topicId, @Param("status") EnrichmentStatus status);
+
+  /**
+   * Stamped once, on the resource producer's first successful run — skipped on a resumed retry that
+   * finds resources already present.
+   */
+  @Modifying
+  @Query("UPDATE Topic t SET t.searchedAt = :searchedAt WHERE t.id = :topicId")
+  int updateSearchedAt(
+      @Param("topicId") Long topicId, @Param("searchedAt") OffsetDateTime searchedAt);
 }

@@ -4,7 +4,7 @@ package com.interviewprep.node.entity;
  * Whether a topic's resources and concepts have been generated yet. Fails independently of {@link
  * ExpansionStatus}.
  */
-enum EnrichmentStatus {
+public enum EnrichmentStatus {
   pending,
   enriching,
   ready,

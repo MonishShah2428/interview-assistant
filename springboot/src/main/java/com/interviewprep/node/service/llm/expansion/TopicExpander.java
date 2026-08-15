@@ -1,4 +1,4 @@
-package com.interviewprep.node.service.llm;
+package com.interviewprep.node.service.llm.expansion;
 
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;

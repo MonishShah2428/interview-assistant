@@ -1,6 +1,6 @@
 package com.interviewprep.node.entity;
 
-enum ConceptOrigin {
+public enum ConceptOrigin {
   upfront,
   extracted
 }
