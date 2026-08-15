@@ -1,8 +1,8 @@
 package com.interviewprep.node.controller;
 
-import com.interviewprep.node.service.ExpandTopicResponse;
 import com.interviewprep.node.service.ExpansionService;
 import com.interviewprep.node.service.NodeService;
+import com.interviewprep.node.service.dto.ExpandTopicResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;

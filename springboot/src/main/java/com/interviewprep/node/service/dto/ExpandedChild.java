@@ -1,4 +1,4 @@
-package com.interviewprep.node.service;
+package com.interviewprep.node.service.dto;
 
 import java.util.List;
 

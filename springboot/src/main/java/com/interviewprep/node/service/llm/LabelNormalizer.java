@@ -1,4 +1,4 @@
-package com.interviewprep.node.service;
+package com.interviewprep.node.service.llm;
 
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
@@ -10,12 +10,12 @@ import org.springframework.stereotype.Component;
  * labels collapse to the same {@code normalized_label} for the dedup lookup.
  */
 @Component
-class LabelNormalizer {
+public class LabelNormalizer {
 
   private static final Pattern PUNCTUATION = Pattern.compile("[^a-z0-9\\s]");
   private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
-  String normalize(String label) {
+  public String normalize(String label) {
     String lower = label.toLowerCase();
     String stripped = PUNCTUATION.matcher(lower).replaceAll("");
     return WHITESPACE.matcher(stripped).replaceAll(" ").trim();

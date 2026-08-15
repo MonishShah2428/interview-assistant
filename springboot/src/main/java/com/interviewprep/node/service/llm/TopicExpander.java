@@ -1,4 +1,4 @@
-package com.interviewprep.node.service;
+package com.interviewprep.node.service.llm;
 
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
@@ -7,7 +7,7 @@ import dev.langchain4j.service.spring.AiService;
 import java.util.List;
 
 @AiService
-interface TopicExpander {
+public interface TopicExpander {
 
   @SystemMessage(
       """

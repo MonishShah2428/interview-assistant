@@ -1,4 +1,4 @@
-package com.interviewprep.node.service;
+package com.interviewprep.node.service.dto;
 
 import com.interviewprep.node.entity.ResourceLane;
 import com.interviewprep.node.entity.ResourceType;
