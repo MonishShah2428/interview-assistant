@@ -1,6 +1,5 @@
 package com.interviewprep.node.entity;
 
-import com.interviewprep.node.composite.TopicEdgeId;
 import jakarta.persistence.Column;
 import jakarta.persistence.EmbeddedId;
 import jakarta.persistence.Entity;

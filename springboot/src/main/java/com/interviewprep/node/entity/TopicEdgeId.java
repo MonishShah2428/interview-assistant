@@ -1,4 +1,4 @@
-package com.interviewprep.node.composite;
+package com.interviewprep.node.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
@@ -8,10 +8,7 @@ import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-/**
- * Composite key for {@link com.interviewprep.node.entity.TopicEdge}: one DAG edge per (parent,
- * child) pair.
- */
+/** Composite key for {@link TopicEdge}: one DAG edge per (parent, child) pair. */
 @Getter
 @EqualsAndHashCode
 @NoArgsConstructor

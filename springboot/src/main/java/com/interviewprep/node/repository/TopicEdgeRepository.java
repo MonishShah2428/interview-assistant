@@ -1,7 +1,7 @@
 package com.interviewprep.node.repository;
 
-import com.interviewprep.node.composite.TopicEdgeId;
 import com.interviewprep.node.entity.TopicEdge;
+import com.interviewprep.node.entity.TopicEdgeId;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 
