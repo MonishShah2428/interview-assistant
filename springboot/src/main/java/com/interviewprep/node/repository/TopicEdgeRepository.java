@@ -1,0 +1,15 @@
+package com.interviewprep.node.repository;
+
+import com.interviewprep.node.composite.TopicEdgeId;
+import com.interviewprep.node.entity.TopicEdge;
+import java.util.List;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface TopicEdgeRepository extends JpaRepository<TopicEdge, TopicEdgeId> {
+
+  // Children of a node.
+  List<TopicEdge> findByIdParentTopicId(Long parentTopicId);
+
+  // Parents of a node — a topic can hang under several. Backed by topic_edge_child_idx.
+  List<TopicEdge> findByIdChildTopicId(Long childTopicId);
+}
