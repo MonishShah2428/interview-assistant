@@ -1,6 +1,6 @@
 package com.interviewprep.node.entity;
 
-enum ResourceType {
+public enum ResourceType {
   video,
   blog,
   docs,

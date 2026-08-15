@@ -1,5 +1,7 @@
 package com.interviewprep.node.controller;
 
+import com.interviewprep.node.service.ExpandTopicResponse;
+import com.interviewprep.node.service.ExpansionService;
 import com.interviewprep.node.service.NodeService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -15,9 +17,11 @@ import org.springframework.web.bind.annotation.RestController;
 class NodeController {
 
   private final NodeService nodeService;
+  private final ExpansionService expansionService;
 
-  NodeController(NodeService nodeService) {
+  NodeController(NodeService nodeService, ExpansionService expansionService) {
     this.nodeService = nodeService;
+    this.expansionService = expansionService;
   }
 
   @PostMapping
@@ -27,8 +31,8 @@ class NodeController {
   }
 
   @PostMapping("/{trackId}/topics/{topicId}/expand")
-  ResponseEntity<Void> expandTopic(@PathVariable Long trackId, @PathVariable Long topicId) {
-    // TODO: normalize + match label against existing nodes in the track before creating children
-    return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED).build();
+  ResponseEntity<ExpandTopicResponse> expandTopic(
+      @PathVariable Long trackId, @PathVariable Long topicId) {
+    return ResponseEntity.ok(expansionService.expandTopic(topicId));
   }
 }

@@ -9,7 +9,7 @@ Full design rationale: @docs/spec.md — read it before changing anything in the
 - Language / framework: Java, Spring Boot (Maven)
 - DB: Postgres
 - Queue: Postgres-backed job table (transactional enqueue, poll with `SELECT ... FOR UPDATE SKIP LOCKED`), not a separate broker
-- LLM layer: Spring AI (structured output converters, tool calling for resource search)
+- LLM layer: LangChain4j (Anthropic integration via `langchain4j-anthropic-spring-boot-starter`)
 - Test command: `mvn test`
 - Lint / format command: `mvn spotless:apply`
 - Run command: `mvn spring-boot:run`
