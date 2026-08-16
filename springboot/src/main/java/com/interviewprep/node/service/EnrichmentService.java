@@ -62,6 +62,7 @@ public class EnrichmentService {
   private final ResourceFinder resourceFinder;
   private final ConceptGenerator conceptGenerator;
   private final LabelNormalizer labelNormalizer;
+  private final ParentChainResolver parentChainResolver;
   private final AsyncTaskExecutor executor;
   private final TransactionTemplate requiredTemplate;
   private final TransactionTemplate requiresNewTemplate;
@@ -73,6 +74,7 @@ public class EnrichmentService {
       ResourceFinder resourceFinder,
       ConceptGenerator conceptGenerator,
       LabelNormalizer labelNormalizer,
+      ParentChainResolver parentChainResolver,
       @Qualifier("applicationTaskExecutor") AsyncTaskExecutor executor,
       PlatformTransactionManager transactionManager) {
     this.topicRepository = topicRepository;
@@ -81,6 +83,7 @@ public class EnrichmentService {
     this.resourceFinder = resourceFinder;
     this.conceptGenerator = conceptGenerator;
     this.labelNormalizer = labelNormalizer;
+    this.parentChainResolver = parentChainResolver;
     this.executor = executor;
     this.requiredTemplate = new TransactionTemplate(transactionManager);
     this.requiresNewTemplate = new TransactionTemplate(transactionManager);
@@ -144,7 +147,12 @@ public class EnrichmentService {
     boolean resourcesAlreadyDone = !resourceRepository.findByTopicId(topicId).isEmpty();
     boolean conceptsAlreadyDone = !conceptRepository.findByTopicId(topicId).isEmpty();
     return new EnrichmentContext(
-        topic.getLabel(), topic.getTrack().getLevel(), resourcesAlreadyDone, conceptsAlreadyDone);
+        topicId,
+        topic.getLabel(),
+        topic.getTrack().getLevel(),
+        parentChainResolver.resolve(topicId),
+        resourcesAlreadyDone,
+        conceptsAlreadyDone);
   }
 
   private CompletableFuture<Outcome<List<ProposedResource>>> launchResourceProducer(
@@ -153,7 +161,10 @@ public class EnrichmentService {
       return CompletableFuture.completedFuture(Outcome.asSkipped());
     }
     return CompletableFuture.supplyAsync(
-            () -> callWithRetry(() -> resourceFinder.findResources(ctx.topicLabel(), ctx.level())),
+            () ->
+                callWithRetry(
+                    () ->
+                        resourceFinder.findResources(ctx.topicId(), ctx.topicLabel(), ctx.level())),
             executor)
         .handle(Outcome::fromCompletion);
   }
@@ -166,7 +177,9 @@ public class EnrichmentService {
     return CompletableFuture.supplyAsync(
             () ->
                 callWithRetry(
-                    () -> conceptGenerator.generateConcepts(ctx.topicLabel(), ctx.level())),
+                    () ->
+                        conceptGenerator.generateConcepts(
+                            ctx.level(), ctx.topicLabel(), ctx.parentChainText())),
             executor)
         .handle(Outcome::fromCompletion);
   }
@@ -265,7 +278,12 @@ public class EnrichmentService {
   }
 
   private record EnrichmentContext(
-      String topicLabel, String level, boolean resourcesAlreadyDone, boolean conceptsAlreadyDone) {}
+      Long topicId,
+      String topicLabel,
+      String level,
+      String parentChainText,
+      boolean resourcesAlreadyDone,
+      boolean conceptsAlreadyDone) {}
 
   /**
    * Captures a producer's outcome without losing which one it was — a bare {@code

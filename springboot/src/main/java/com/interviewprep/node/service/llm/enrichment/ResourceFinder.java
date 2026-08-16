@@ -9,9 +9,8 @@ import java.util.List;
  * is resource discovery, and it stays behind exactly this shape, find_resources(topic, level) -&gt;
  * Resource[].
  *
- * <p>TODO: implement as an agentic loop, likely backed by {@link SearchTools}. Until then {@link
- * com.interviewprep.node.service.llm.enrichment.placeholder.PlaceholderResourceFinder} is the only
- * bean and always throws {@link NonRetryableEnrichmentException}.
+ * <p>Implemented by {@link
+ * com.interviewprep.node.service.llm.enrichment.impl.AgenticResourceFinder}.
  */
 public interface ResourceFinder {
 
@@ -19,6 +18,10 @@ public interface ResourceFinder {
    * Implementations classify their own failures: throw {@link RetryableEnrichmentException} for a
    * transient condition worth retrying (e.g. a 429), {@link NonRetryableEnrichmentException} for
    * anything that fails identically on retry (e.g. a 401, a malformed model response).
+   *
+   * @param topicId scopes the {@code existingResourcesFor} check on a refresh — this call never
+   *     reads or writes {@code Resource} rows itself, it only needs the id to hand to {@link
+   *     SearchTools}.
    */
-  List<ProposedResource> findResources(String topicLabel, String level);
+  List<ProposedResource> findResources(Long topicId, String topicLabel, String level);
 }

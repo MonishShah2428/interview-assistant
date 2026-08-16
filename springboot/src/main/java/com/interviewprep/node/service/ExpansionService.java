@@ -16,10 +16,8 @@ import com.interviewprep.node.service.llm.LabelNormalizer;
 import com.interviewprep.node.service.llm.expansion.ProposedChild;
 import com.interviewprep.node.service.llm.expansion.TopicExpander;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.NoSuchElementException;
-import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -46,6 +44,7 @@ public class ExpansionService {
   private final TrackRepository trackRepository;
   private final TopicExpander topicExpander;
   private final LabelNormalizer labelNormalizer;
+  private final ParentChainResolver parentChainResolver;
   private final TransactionTemplate requiredTemplate;
   private final TransactionTemplate requiresNewTemplate;
 
@@ -56,6 +55,7 @@ public class ExpansionService {
       TrackRepository trackRepository,
       TopicExpander topicExpander,
       LabelNormalizer labelNormalizer,
+      ParentChainResolver parentChainResolver,
       PlatformTransactionManager transactionManager) {
     this.topicRepository = topicRepository;
     this.topicEdgeRepository = topicEdgeRepository;
@@ -63,6 +63,7 @@ public class ExpansionService {
     this.trackRepository = trackRepository;
     this.topicExpander = topicExpander;
     this.labelNormalizer = labelNormalizer;
+    this.parentChainResolver = parentChainResolver;
     this.requiredTemplate = new TransactionTemplate(transactionManager);
     this.requiresNewTemplate = new TransactionTemplate(transactionManager);
     this.requiresNewTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -119,28 +120,7 @@ public class ExpansionService {
                 .collect(Collectors.joining(", "));
 
     return new PromptContext(
-        trackId, level, topic.getLabel(), buildParentChainText(topicId), siblingLabelsText);
-  }
-
-  private String buildParentChainText(Long topicId) {
-    List<String> chain = new ArrayList<>();
-    Set<Long> visited = new HashSet<>();
-    Long currentId = topicId;
-    while (true) {
-      List<TopicEdge> parentEdges = topicEdgeRepository.findByIdChildTopicId(currentId);
-      if (parentEdges.isEmpty()) {
-        break;
-      }
-      // A topic can have multiple parents in the DAG; arbitrarily pick the first for prompt
-      // context. Deliberate simplification, not a correctness requirement.
-      Topic parent = parentEdges.get(0).getParentTopic();
-      if (!visited.add(parent.getId())) {
-        break; // safety valve against an accidental cycle
-      }
-      chain.add(0, parent.getLabel());
-      currentId = parent.getId();
-    }
-    return chain.isEmpty() ? "(none — this is a root topic)" : String.join(" > ", chain);
+        trackId, level, topic.getLabel(), parentChainResolver.resolve(topicId), siblingLabelsText);
   }
 
   // ---- step 4: resolve + persist each proposal ----
