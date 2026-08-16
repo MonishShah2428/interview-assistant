@@ -15,6 +15,7 @@ import com.interviewprep.node.service.llm.enrichment.ProposedConcept;
 import com.interviewprep.node.service.llm.enrichment.ProposedResource;
 import com.interviewprep.node.service.llm.enrichment.ResourceFinder;
 import com.interviewprep.node.service.llm.enrichment.RetryableEnrichmentException;
+import com.interviewprep.node.sse.EnrichmentEventPublisher;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -63,6 +64,7 @@ public class EnrichmentService {
   private final ConceptGenerator conceptGenerator;
   private final LabelNormalizer labelNormalizer;
   private final ParentChainResolver parentChainResolver;
+  private final EnrichmentEventPublisher enrichmentEventPublisher;
   private final AsyncTaskExecutor executor;
   private final TransactionTemplate requiredTemplate;
   private final TransactionTemplate requiresNewTemplate;
@@ -75,6 +77,7 @@ public class EnrichmentService {
       ConceptGenerator conceptGenerator,
       LabelNormalizer labelNormalizer,
       ParentChainResolver parentChainResolver,
+      EnrichmentEventPublisher enrichmentEventPublisher,
       @Qualifier("applicationTaskExecutor") AsyncTaskExecutor executor,
       PlatformTransactionManager transactionManager) {
     this.topicRepository = topicRepository;
@@ -84,6 +87,7 @@ public class EnrichmentService {
     this.conceptGenerator = conceptGenerator;
     this.labelNormalizer = labelNormalizer;
     this.parentChainResolver = parentChainResolver;
+    this.enrichmentEventPublisher = enrichmentEventPublisher;
     this.executor = executor;
     this.requiredTemplate = new TransactionTemplate(transactionManager);
     this.requiresNewTemplate = new TransactionTemplate(transactionManager);
@@ -92,10 +96,11 @@ public class EnrichmentService {
 
   /**
    * Fills {@code topicId} with resources and concepts, or does nothing if it's already
-   * enriching/ready/missing. Not wired to any caller yet. Void rather than a response DTO: this is
-   * the future queue worker's entry point, not a request handler with a synchronous caller waiting
-   * on a response. On unrecoverable failure the topic is marked {@code failed} and the triggering
-   * exception is rethrown for the (future) worker to classify/dead-letter.
+   * enriching/ready/missing. Called by {@link com.interviewprep.node.queue.EnrichmentJobPoller}.
+   * Void rather than a response DTO: this is a queue worker's entry point, not a request handler
+   * with a synchronous caller waiting on a response — completion is announced separately via {@link
+   * #enrichmentEventPublisher}. On unrecoverable failure the topic is marked {@code failed} and the
+   * triggering exception is rethrown for the poller to classify/dead-letter.
    */
   public void enrichTopic(Long topicId) {
     int claimed =
@@ -108,8 +113,9 @@ public class EnrichmentService {
       return; // doesn't exist, already enriching/ready, or another trigger already owns it
     }
 
+    EnrichmentContext ctx = null;
     try {
-      EnrichmentContext ctx = requiredTemplate.execute(status -> gatherContext(topicId));
+      ctx = requiredTemplate.execute(status -> gatherContext(topicId));
 
       CompletableFuture<Outcome<List<ProposedResource>>> resourceFuture =
           launchResourceProducer(ctx);
@@ -131,10 +137,14 @@ public class EnrichmentService {
 
       requiredTemplate.executeWithoutResult(
           status -> topicRepository.updateEnrichmentStatus(topicId, EnrichmentStatus.ready));
-      // TODO: announce completion to the UI once a push channel (WebSocket/SSE) exists.
+      // Publish after the transaction closes — no networky work while holding a DB connection.
+      enrichmentEventPublisher.publish(ctx.trackId(), topicId, EnrichmentStatus.ready);
     } catch (RuntimeException e) {
       requiredTemplate.executeWithoutResult(
           status -> topicRepository.updateEnrichmentStatus(topicId, EnrichmentStatus.failed));
+      if (ctx != null) {
+        enrichmentEventPublisher.publish(ctx.trackId(), topicId, EnrichmentStatus.failed);
+      }
       throw e;
     }
   }
@@ -148,6 +158,7 @@ public class EnrichmentService {
     boolean conceptsAlreadyDone = !conceptRepository.findByTopicId(topicId).isEmpty();
     return new EnrichmentContext(
         topicId,
+        topic.getTrack().getId(),
         topic.getLabel(),
         topic.getTrack().getLevel(),
         parentChainResolver.resolve(topicId),
@@ -279,6 +290,7 @@ public class EnrichmentService {
 
   private record EnrichmentContext(
       Long topicId,
+      Long trackId,
       String topicLabel,
       String level,
       String parentChainText,

@@ -1,10 +1,12 @@
 package com.interviewprep.node.service;
 
+import com.interviewprep.node.entity.EnrichmentJob;
 import com.interviewprep.node.entity.ExpansionStatus;
 import com.interviewprep.node.entity.Resource;
 import com.interviewprep.node.entity.Topic;
 import com.interviewprep.node.entity.TopicEdge;
 import com.interviewprep.node.entity.Track;
+import com.interviewprep.node.repository.EnrichmentJobRepository;
 import com.interviewprep.node.repository.ResourceRepository;
 import com.interviewprep.node.repository.TopicEdgeRepository;
 import com.interviewprep.node.repository.TopicRepository;
@@ -42,6 +44,7 @@ public class ExpansionService {
   private final TopicEdgeRepository topicEdgeRepository;
   private final ResourceRepository resourceRepository;
   private final TrackRepository trackRepository;
+  private final EnrichmentJobRepository enrichmentJobRepository;
   private final TopicExpander topicExpander;
   private final LabelNormalizer labelNormalizer;
   private final ParentChainResolver parentChainResolver;
@@ -53,6 +56,7 @@ public class ExpansionService {
       TopicEdgeRepository topicEdgeRepository,
       ResourceRepository resourceRepository,
       TrackRepository trackRepository,
+      EnrichmentJobRepository enrichmentJobRepository,
       TopicExpander topicExpander,
       LabelNormalizer labelNormalizer,
       ParentChainResolver parentChainResolver,
@@ -61,6 +65,7 @@ public class ExpansionService {
     this.topicEdgeRepository = topicEdgeRepository;
     this.resourceRepository = resourceRepository;
     this.trackRepository = trackRepository;
+    this.enrichmentJobRepository = enrichmentJobRepository;
     this.topicExpander = topicExpander;
     this.labelNormalizer = labelNormalizer;
     this.parentChainResolver = parentChainResolver;
@@ -170,9 +175,12 @@ public class ExpansionService {
                                   proposal.isCore(),
                                   false);
                           topicRepository.saveAndFlush(created); // force the constraint check now
-                          // TODO: enqueue a call to EnrichmentService.enrichTopic(created.getId())
-                          // once an async job queue exists — enrichment has no latency budget and
-                          // must not be called directly from this sync 3-5s pipeline.
+                          // Atomic with the topic row: same transaction, so a topic can never
+                          // exist without a queued enrichment job. Enrichment has no latency
+                          // budget, so the actual work happens off this sync 3-5s pipeline —
+                          // EnrichmentJobPoller picks the job up and calls
+                          // EnrichmentService.enrichTopic.
+                          enrichmentJobRepository.save(new EnrichmentJob(created.getId()));
                           return created;
                         });
             return new ResolvedChild(
