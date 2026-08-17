@@ -50,6 +50,10 @@ public class Topic {
   @Column(name = "is_root", nullable = false)
   private boolean isRoot;
 
+  /** Only meaningful for roots — preserves the decomposer's foundational-first output order. */
+  @Column(name = "position", nullable = false)
+  private int position;
+
   @Enumerated(EnumType.STRING)
   @Column(name = "expansion_status", nullable = false)
   private ExpansionStatus expansionStatus;
@@ -67,11 +71,22 @@ public class Topic {
   Topic() {}
 
   public Topic(Track track, String label, String normalizedLabel, boolean isCore, boolean isRoot) {
+    this(track, label, normalizedLabel, isCore, isRoot, 0);
+  }
+
+  public Topic(
+      Track track,
+      String label,
+      String normalizedLabel,
+      boolean isCore,
+      boolean isRoot,
+      int position) {
     this.track = track;
     this.label = label;
     this.normalizedLabel = normalizedLabel;
     this.isCore = isCore;
     this.isRoot = isRoot;
+    this.position = position;
     this.expansionStatus = ExpansionStatus.not_expanded;
     this.enrichmentStatus = EnrichmentStatus.pending;
     this.createdAt = OffsetDateTime.now();

@@ -1,6 +1,7 @@
 package com.interviewprep.node.service;
 
 import com.interviewprep.node.entity.EnrichmentJob;
+import com.interviewprep.node.entity.EnrichmentJobKind;
 import com.interviewprep.node.entity.ExpansionStatus;
 import com.interviewprep.node.entity.Resource;
 import com.interviewprep.node.entity.Topic;
@@ -74,7 +75,9 @@ public class ExpansionService {
     this.requiresNewTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
   }
 
-  public ExpandTopicResponse expandTopic(Long topicId) {
+  public ExpandTopicResponse expandTopic(Long trackId, Long topicId) {
+    requiredTemplate.executeWithoutResult(status -> requireTopicInTrack(trackId, topicId));
+
     int claimed =
         requiredTemplate.execute(
             status ->
@@ -103,6 +106,28 @@ public class ExpansionService {
       requiredTemplate.executeWithoutResult(
           status -> topicRepository.updateExpansionStatus(topicId, ExpansionStatus.failed));
       throw e;
+    }
+  }
+
+  /**
+   * Enqueues an async resource refresh ("find more resources") for an already-enriched topic.
+   * Deliberately lives here, not on {@link EnrichmentService}: this class decides whether
+   * enrichment-adjacent work should happen and enqueues it, {@code EnrichmentService} only knows
+   * how to run it safely, never why — same split as the initial-enrichment enqueue in {@link
+   * #resolveTopicWithResources}.
+   */
+  public void requestResourceRefresh(Long trackId, Long topicId) {
+    requiredTemplate.executeWithoutResult(
+        status -> {
+          requireTopicInTrack(trackId, topicId);
+          enrichmentJobRepository.save(
+              new EnrichmentJob(topicId, EnrichmentJobKind.resource_refresh));
+        });
+  }
+
+  private void requireTopicInTrack(Long trackId, Long topicId) {
+    if (!topicRepository.existsByIdAndTrackId(topicId, trackId)) {
+      throw new NoSuchElementException("topic not found in track: " + topicId);
     }
   }
 

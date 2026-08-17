@@ -14,6 +14,8 @@ public interface EnrichmentJobRepository extends JpaRepository<EnrichmentJob, Lo
     Long getId();
 
     Long getTopicId();
+
+    String getKind();
   }
 
   /**
@@ -41,7 +43,7 @@ public interface EnrichmentJobRepository extends JpaRepository<EnrichmentJob, Lo
             LIMIT :batchSize
             FOR UPDATE SKIP LOCKED
           )
-          RETURNING id, topic_id
+          RETURNING id, topic_id, kind
           """,
       nativeQuery = true)
   List<ClaimedJob> claimBatch(

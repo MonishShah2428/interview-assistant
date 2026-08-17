@@ -25,6 +25,7 @@ import java.util.concurrent.CompletionException;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.AsyncTaskExecutor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -146,6 +147,57 @@ public class EnrichmentService {
         enrichmentEventPublisher.publish(ctx.trackId(), topicId, EnrichmentStatus.failed);
       }
       throw e;
+    }
+  }
+
+  /**
+   * "Find more resources" for a topic that's typically already {@code ready} — the spec's minimum
+   * bar for staleness handling. Called by {@link com.interviewprep.node.queue.EnrichmentJobPoller}
+   * for {@link com.interviewprep.node.entity.EnrichmentJobKind#resource_refresh} jobs. Unlike
+   * {@link #enrichTopic}, this never touches {@code enrichment_status} — an empty or failed refresh
+   * doesn't invalidate a topic's existing content, so there's nothing here to mark {@code failed};
+   * on failure the exception just propagates to the poller for its own retry/backoff.
+   */
+  public void refreshResources(Long topicId) {
+    EnrichmentContext ctx = requiredTemplate.execute(status -> gatherContext(topicId));
+
+    List<ProposedResource> proposals = // agent call, no transaction open
+        callWithRetry(() -> resourceFinder.findResources(topicId, ctx.topicLabel(), ctx.level()));
+
+    appendNewResources(topicId, proposals);
+
+    requiredTemplate.executeWithoutResult(
+        status -> topicRepository.updateSearchedAt(topicId, OffsetDateTime.now()));
+  }
+
+  /**
+   * Each insert gets its own {@code REQUIRES_NEW} transaction, same as {@code
+   * ExpansionService#insertEdge} — batching these into one shared transaction would abort the whole
+   * thing at the Postgres level on the first duplicate URL, taking every sibling insert down with
+   * it. {@code resource_unique_url} is the dedupe guard, not reimplemented here (see {@code
+   * Resource}'s Javadoc); a caught violation just means this proposal was already found before.
+   */
+  private void appendNewResources(Long topicId, List<ProposedResource> proposals) {
+    Topic topicRef = topicRepository.getReferenceById(topicId);
+    int position = resourceRepository.findByTopicId(topicId).size();
+    for (ProposedResource p : proposals) {
+      int rowPosition = position++;
+      try {
+        requiresNewTemplate.executeWithoutResult(
+            status ->
+                resourceRepository.saveAndFlush(
+                    new Resource(
+                        topicRef,
+                        p.type(),
+                        p.lane(),
+                        p.title(),
+                        p.url(),
+                        p.citation(),
+                        p.sourceQuery(),
+                        rowPosition)));
+      } catch (DataIntegrityViolationException alreadyHaveThisUrl) {
+        // Already have this URL for this topic — exactly the dedupe the constraint exists for.
+      }
     }
   }
 

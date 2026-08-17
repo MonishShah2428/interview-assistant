@@ -1,5 +1,6 @@
 package com.interviewprep.node.queue;
 
+import com.interviewprep.node.entity.EnrichmentJobKind;
 import com.interviewprep.node.repository.EnrichmentJobRepository;
 import com.interviewprep.node.repository.EnrichmentJobRepository.ClaimedJob;
 import com.interviewprep.node.service.EnrichmentService;
@@ -60,7 +61,10 @@ class EnrichmentJobPoller {
 
   private void process(ClaimedJob job) {
     try {
-      enrichmentService.enrichTopic(job.getTopicId());
+      switch (EnrichmentJobKind.valueOf(job.getKind())) {
+        case initial -> enrichmentService.enrichTopic(job.getTopicId());
+        case resource_refresh -> enrichmentService.refreshResources(job.getTopicId());
+      }
       requiredTemplate.executeWithoutResult(status -> jobRepository.deleteById(job.getId()));
     } catch (RuntimeException e) {
       requiredTemplate.executeWithoutResult(

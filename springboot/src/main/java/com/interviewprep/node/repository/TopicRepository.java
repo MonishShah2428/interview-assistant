@@ -17,11 +17,14 @@ public interface TopicRepository extends JpaRepository<Topic, Long> {
   // The dedupe-arbiter re-read: backed by topic_unique_in_track.
   Optional<Topic> findByTrackIdAndNormalizedLabel(Long trackId, String normalizedLabel);
 
-  // Backed by the partial index topic_roots_idx.
-  List<Topic> findByTrackIdAndIsRootTrue(Long trackId);
+  // Backed by the partial index topic_roots_idx; position preserves the decomposer's order.
+  List<Topic> findByTrackIdAndIsRootTrueOrderByPosition(Long trackId);
 
   // Backed by topic_track_idx.
   List<Topic> findByTrackId(Long trackId);
+
+  // trackId-scoping guard: does this topic actually belong to the track the caller claims it does.
+  boolean existsByIdAndTrackId(Long id, Long trackId);
 
   /**
    * Atomic claim: flips the topic to {@code expanding} only if currently in a claimable state.

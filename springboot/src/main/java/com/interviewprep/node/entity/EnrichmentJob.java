@@ -12,10 +12,11 @@ import java.time.OffsetDateTime;
 import lombok.Getter;
 
 /**
- * A queued call to {@code EnrichmentService.enrichTopic}. Deliberately holds a plain {@code
- * topicId} rather than a {@code @ManyToOne Topic} like {@link Resource}/{@link Concept} do —
- * nothing ever navigates from a job to the topic's other fields, the poller only needs the raw id.
- * The FK is enforced at the DB level only.
+ * A queued call into {@code EnrichmentService} — {@link EnrichmentJobKind#initial} for {@code
+ * enrichTopic}, {@link EnrichmentJobKind#resource_refresh} for {@code refreshResources}.
+ * Deliberately holds a plain {@code topicId} rather than a {@code @ManyToOne Topic} like {@link
+ * Resource}/{@link Concept} do — nothing ever navigates from a job to the topic's other fields, the
+ * poller only needs the raw id. The FK is enforced at the DB level only.
  */
 @Getter
 @Entity
@@ -28,6 +29,10 @@ public class EnrichmentJob {
 
   @Column(name = "topic_id", nullable = false, updatable = false)
   private Long topicId;
+
+  @Enumerated(EnumType.STRING)
+  @Column(nullable = false, updatable = false)
+  private EnrichmentJobKind kind;
 
   @Enumerated(EnumType.STRING)
   @Column(nullable = false)
@@ -48,7 +53,12 @@ public class EnrichmentJob {
   EnrichmentJob() {}
 
   public EnrichmentJob(Long topicId) {
+    this(topicId, EnrichmentJobKind.initial);
+  }
+
+  public EnrichmentJob(Long topicId, EnrichmentJobKind kind) {
     this.topicId = topicId;
+    this.kind = kind;
     this.status = EnrichmentJobStatus.pending;
     this.attempts = 0;
     OffsetDateTime now = OffsetDateTime.now();
