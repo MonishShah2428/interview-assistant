@@ -9,6 +9,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -26,8 +27,13 @@ import org.springframework.transaction.support.TransactionTemplate;
  * catches everything the inner retry didn't recover from, on the theory that some of those (e.g. a
  * transient DB blip during the claim/status-transition itself) are still worth one more pass at
  * job-queue timescale.
+ *
+ * <p>Gated behind {@code enrichment.polling.enabled} (defaults on) so tests that drive {@link
+ * EnrichmentService} directly can turn this off — otherwise the background poll tick races those
+ * tests for the same {@code enrichment_status} claim.
  */
 @Component
+@ConditionalOnProperty(prefix = "enrichment.polling", name = "enabled", matchIfMissing = true)
 class EnrichmentJobPoller {
 
   private static final int BATCH_SIZE = 5;
