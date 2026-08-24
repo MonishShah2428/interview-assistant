@@ -16,6 +16,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 /**
@@ -36,7 +37,8 @@ class AgenticResourceFinder implements ResourceFinder {
   private final ChatModel chatModel;
   private final SearchTools searchTools;
 
-  AgenticResourceFinder(ChatModel chatModel, SearchTools searchTools) {
+  AgenticResourceFinder(
+      @Qualifier("toolCallingChatModel") ChatModel chatModel, SearchTools searchTools) {
     this.chatModel = chatModel;
     this.searchTools = searchTools;
   }
@@ -51,7 +53,8 @@ class AgenticResourceFinder implements ResourceFinder {
             .maxToolCallingRoundTrips(MAX_ROUND_TRIPS)
             .build();
 
-    List<ProposedResource> proposals = callWithTimeout(() -> ai.find(topicLabel, level));
+    List<ProposedResource> proposals =
+        callWithTimeout(() -> ai.find(topicLabel, level).resources());
 
     return proposals.stream()
         .filter(p -> searchTools.validateUrl(p.url())) // defensive re-check, never trust the

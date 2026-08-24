@@ -12,6 +12,16 @@ import java.util.List;
  * com.interviewprep.node.service.llm.expansion.TopicExpander}, this loop needs {@code
  * maxToolCallingRoundTrips} bounded explicitly, which the declarative {@code @AiService} annotation
  * has no attribute for.
+ *
+ * <p>{@link #find} returns {@link ProposedResourceList}, not {@code List<ProposedResource>}
+ * directly: the model backing this call uses tool calling, which OpenAI-compatible APIs (Groq
+ * included) refuse to combine with {@code response_format: json_schema} ("json mode cannot be
+ * combined with tool/function calling"), so this call can't get native structured output the way
+ * {@link com.interviewprep.node.service.llm.enrichment.ConceptGenerator} and friends do. Without
+ * that, langchain4j falls back to text-prompted format instructions — which it only supports for a
+ * single POJO, not a bare {@code List<POJO>} (see
+ * https://github.com/langchain4j/langchain4j/issues/3264). Wrapping the list in one object routes
+ * through the parser that actually works.
  */
 interface ResourceFinderAi {
 
@@ -32,5 +42,7 @@ interface ResourceFinderAi {
       returning nothing.
       """)
   @UserMessage("Topic: {{topicLabel}}\nLevel: {{level}}\nFind resources for \"{{topicLabel}}\".")
-  List<ProposedResource> find(@V("topicLabel") String topicLabel, @V("level") String level);
+  ProposedResourceList find(@V("topicLabel") String topicLabel, @V("level") String level);
+
+  record ProposedResourceList(List<ProposedResource> resources) {}
 }

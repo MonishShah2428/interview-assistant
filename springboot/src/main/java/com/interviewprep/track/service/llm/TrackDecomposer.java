@@ -4,6 +4,7 @@ import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
 import dev.langchain4j.service.V;
 import dev.langchain4j.service.spring.AiService;
+import dev.langchain4j.service.spring.AiServiceWiringMode;
 import java.util.List;
 
 /**
@@ -11,7 +12,7 @@ import java.util.List;
  * levels deep" yet — {@link com.interviewprep.track.service.TrackService} only creates roots;
  * getting to the second level is {@code ExpansionService.expandTopic}, not this call.
  */
-@AiService
+@AiService(wiringMode = AiServiceWiringMode.EXPLICIT, chatModel = "chatModel")
 public interface TrackDecomposer {
 
   @SystemMessage(

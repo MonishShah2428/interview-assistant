@@ -4,6 +4,7 @@ import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
 import dev.langchain4j.service.V;
 import dev.langchain4j.service.spring.AiService;
+import dev.langchain4j.service.spring.AiServiceWiringMode;
 import java.util.List;
 
 /**
@@ -13,7 +14,7 @@ import java.util.List;
  * fixed vocabulary {@link ResourceFinder}-adjacent extraction classifies against later, so it can't
  * be a function of whatever a search happened to return that morning.
  */
-@AiService
+@AiService(wiringMode = AiServiceWiringMode.EXPLICIT, chatModel = "chatModel")
 public interface ConceptGenerator {
 
   @SystemMessage(

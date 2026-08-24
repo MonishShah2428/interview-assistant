@@ -29,6 +29,11 @@ class ExaSearchTools implements SearchTools {
   private static final String EXA_SEARCH_URL = "https://api.exa.ai/search";
   private static final String EXA_HOST = "api.exa.ai";
   private static final int MAX_RESULTS = 8;
+  // Exa's full page text can run to thousands of tokens per result; the agentic resource-finder
+  // feeds every search result back into the model's context on each of its tool-calling round
+  // trips, so uncapped text quickly exhausts a provider's per-minute token budget. A snippet this
+  // size is still plenty for the model to judge relevance and write a citation from.
+  private static final int MAX_TEXT_CHARS = 600;
 
   private final RestClient restClient;
   private final String apiKey;
@@ -57,7 +62,8 @@ class ExaSearchTools implements SearchTools {
               .uri(EXA_SEARCH_URL)
               .header("x-api-key", apiKey)
               .contentType(MediaType.APPLICATION_JSON)
-              .body(new ExaRequest(query, MAX_RESULTS, new ExaContents(true)))
+              .body(
+                  new ExaRequest(query, MAX_RESULTS, new ExaContents(new ExaText(MAX_TEXT_CHARS))))
               .retrieve()
               .body(ExaResponse.class);
     } catch (HttpClientErrorException.TooManyRequests e) {
@@ -121,7 +127,9 @@ class ExaSearchTools implements SearchTools {
 
   private record ExaRequest(String query, int numResults, ExaContents contents) {}
 
-  private record ExaContents(boolean text) {}
+  private record ExaContents(ExaText text) {}
+
+  private record ExaText(int maxCharacters) {}
 
   private record ExaResponse(List<ExaResult> results) {}
 
