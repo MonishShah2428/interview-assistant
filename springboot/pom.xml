@@ -55,10 +55,19 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-restclient</artifactId>
 		</dependency>
+		<!-- langchain4j-open-ai-spring-boot-starter's Spring RestClient bridge references a class
+		     Spring Boot 4 removed (org.springframework.boot.http.client.ClientHttpRequestFactorySettings,
+		     see https://github.com/langchain4j/langchain4j/issues/4268), so the ChatModel bean is wired
+		     by hand in ChatModelConfig instead, using the JDK HTTP client transport below. -->
 		<dependency>
 			<groupId>dev.langchain4j</groupId>
-			<artifactId>langchain4j-anthropic-spring-boot-starter</artifactId>
-			<version>1.19.0-beta29</version>
+			<artifactId>langchain4j-open-ai</artifactId>
+			<version>1.19.0</version>
+		</dependency>
+		<dependency>
+			<groupId>dev.langchain4j</groupId>
+			<artifactId>langchain4j-http-client-jdk</artifactId>
+			<version>1.19.0</version>
 		</dependency>
 		<dependency>
 			<groupId>dev.langchain4j</groupId>

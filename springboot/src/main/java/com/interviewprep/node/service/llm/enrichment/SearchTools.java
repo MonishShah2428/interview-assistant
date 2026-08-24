@@ -8,7 +8,7 @@ import java.util.List;
  * ResourceFinder}; if a caller ever wants "return only good results" from here, that's a sign the
  * judgment leaked into the wrong layer.
  *
- * <p>Implemented by {@link com.interviewprep.node.service.llm.enrichment.impl.TavilySearchTools}.
+ * <p>Implemented by {@link com.interviewprep.node.service.llm.enrichment.impl.ExaSearchTools}.
  */
 public interface SearchTools {
 

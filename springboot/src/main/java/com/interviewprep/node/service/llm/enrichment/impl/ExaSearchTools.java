@@ -1,6 +1,5 @@
 package com.interviewprep.node.service.llm.enrichment.impl;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
 import com.interviewprep.node.repository.ResourceRepository;
 import com.interviewprep.node.service.llm.HostRateLimiter;
 import com.interviewprep.node.service.llm.enrichment.ExistingResource;
@@ -19,15 +18,16 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 /**
- * Wraps Tavily for {@link #search} and does its own HEAD/ranged-GET resolution for {@link
- * #validateUrl}. One host-rate-limited {@link RestClient} handles both — absolute URIs are passed
- * per-request rather than binding a base URL, since {@link #validateUrl} targets arbitrary hosts.
+ * Wraps Exa's neural search for {@link #search} and does its own HEAD/ranged-GET resolution for
+ * {@link #validateUrl}. One host-rate-limited {@link RestClient} handles both — absolute URIs are
+ * passed per-request rather than binding a base URL, since {@link #validateUrl} targets arbitrary
+ * hosts.
  */
 @Component
-class TavilySearchTools implements SearchTools {
+class ExaSearchTools implements SearchTools {
 
-  private static final String TAVILY_SEARCH_URL = "https://api.tavily.com/search";
-  private static final String TAVILY_HOST = "api.tavily.com";
+  private static final String EXA_SEARCH_URL = "https://api.exa.ai/search";
+  private static final String EXA_HOST = "api.exa.ai";
   private static final int MAX_RESULTS = 8;
 
   private final RestClient restClient;
@@ -35,9 +35,9 @@ class TavilySearchTools implements SearchTools {
   private final ResourceRepository resourceRepository;
   private final HostRateLimiter hostRateLimiter;
 
-  TavilySearchTools(
+  ExaSearchTools(
       RestClient.Builder restClientBuilder,
-      @Value("${tavily.api-key}") String apiKey,
+      @Value("${exa.api-key}") String apiKey,
       ResourceRepository resourceRepository,
       HostRateLimiter hostRateLimiter) {
     this.restClient = restClientBuilder.build();
@@ -48,29 +48,30 @@ class TavilySearchTools implements SearchTools {
 
   @Override
   public List<SearchResult> search(String query) {
-    hostRateLimiter.acquire(TAVILY_HOST);
-    TavilyResponse response;
+    hostRateLimiter.acquire(EXA_HOST);
+    ExaResponse response;
     try {
       response =
           restClient
               .post()
-              .uri(TAVILY_SEARCH_URL)
+              .uri(EXA_SEARCH_URL)
+              .header("x-api-key", apiKey)
               .contentType(MediaType.APPLICATION_JSON)
-              .body(new TavilyRequest(apiKey, query, MAX_RESULTS))
+              .body(new ExaRequest(query, MAX_RESULTS, new ExaContents(true)))
               .retrieve()
-              .body(TavilyResponse.class);
+              .body(ExaResponse.class);
     } catch (HttpClientErrorException.TooManyRequests e) {
-      throw new RetryableEnrichmentException("tavily rate-limited the search request", e);
+      throw new RetryableEnrichmentException("exa rate-limited the search request", e);
     } catch (HttpClientErrorException e) {
-      throw new NonRetryableEnrichmentException("tavily rejected the search request", e);
+      throw new NonRetryableEnrichmentException("exa rejected the search request", e);
     } catch (RestClientException e) {
-      throw new RetryableEnrichmentException("tavily search failed", e);
+      throw new RetryableEnrichmentException("exa search failed", e);
     }
     if (response == null || response.results() == null) {
       return List.of();
     }
     return response.results().stream()
-        .map(r -> new SearchResult(r.title(), r.url(), r.content()))
+        .map(r -> new SearchResult(r.title(), r.url(), r.text()))
         .toList();
   }
 
@@ -118,12 +119,11 @@ class TavilySearchTools implements SearchTools {
     }
   }
 
-  private record TavilyRequest(
-      @JsonProperty("api_key") String apiKey,
-      @JsonProperty("query") String query,
-      @JsonProperty("max_results") int maxResults) {}
+  private record ExaRequest(String query, int numResults, ExaContents contents) {}
 
-  private record TavilyResponse(List<TavilyResult> results) {}
+  private record ExaContents(boolean text) {}
 
-  private record TavilyResult(String title, String url, String content) {}
+  private record ExaResponse(List<ExaResult> results) {}
+
+  private record ExaResult(String title, String url, String text) {}
 }
