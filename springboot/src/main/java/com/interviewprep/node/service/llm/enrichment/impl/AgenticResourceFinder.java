@@ -35,6 +35,14 @@ class AgenticResourceFinder implements ResourceFinder {
   private static final int MAX_ELAPSED_SECONDS = 45;
   private static final int MAX_RESOURCES = 6;
 
+  // Tunable defaults, not exhaustive — the video/practice tools hard-filter to these via Exa's
+  // includeDomains, so a topic whose only good resource lives on a site outside this list simply
+  // won't get one from that tool; the LLM still has webSearch (open web) as a fallback.
+  private static final List<String> VIDEO_DOMAINS = List.of("youtube.com");
+  private static final List<String> PRACTICE_DOMAINS =
+      List.of(
+          "leetcode.com", "neetcode.io", "interviewing.io", "hellointerview.com", "educative.io");
+
   private final ChatModel chatModel;
   private final SearchTools searchTools;
 
@@ -97,14 +105,40 @@ class AgenticResourceFinder implements ResourceFinder {
       this.topicId = topicId;
     }
 
-    @Tool("Search the web for learning resources on a query.")
+    @Tool(
+        "Search the open web for a reference or explainer resource on a query — docs, tutorials,"
+            + " blog posts. Not domain-restricted, unlike searchVideos/searchPracticeProblems.")
     public List<SearchResult> webSearch(
         @P("search query") String query,
         @P(
                 "search strategy: AUTO when unsure, FAST for exact terms or names, INSTANT for"
                     + " quick lookups where speed matters most")
             SearchType type) {
-      return searchTools.search(query, type);
+      return searchTools.search(query, type, List.of());
+    }
+
+    @Tool(
+        "Search specifically for a video walkthrough of a query, restricted to trusted video"
+            + " platforms. Use this instead of webSearch when looking for the watch lane.")
+    public List<SearchResult> searchVideos(
+        @P("search query") String query,
+        @P(
+                "search strategy: AUTO when unsure, FAST for exact terms or names, INSTANT for"
+                    + " quick lookups where speed matters most")
+            SearchType type) {
+      return searchTools.search(query, type, VIDEO_DOMAINS);
+    }
+
+    @Tool(
+        "Search specifically for hands-on practice problems or exercises on a query, restricted"
+            + " to trusted practice sites. Use this instead of webSearch for the practice lane.")
+    public List<SearchResult> searchPracticeProblems(
+        @P("search query") String query,
+        @P(
+                "search strategy: AUTO when unsure, FAST for exact terms or names, INSTANT for"
+                    + " quick lookups where speed matters most")
+            SearchType type) {
+      return searchTools.search(query, type, PRACTICE_DOMAINS);
     }
 
     @Tool("Check whether a URL actually resolves before including it in results.")

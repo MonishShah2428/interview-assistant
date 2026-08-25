@@ -1,5 +1,6 @@
 package com.interviewprep.node.service.llm.enrichment.impl;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.interviewprep.node.repository.ResourceRepository;
 import com.interviewprep.node.service.llm.HostRateLimiter;
 import com.interviewprep.node.service.llm.enrichment.ExistingResource;
@@ -29,6 +30,9 @@ import org.springframework.web.client.RestClientException;
  * tool-calling round trip, and highlights run roughly 10x fewer tokens than full text for
  * comparable relevance (see
  * https://docs.exa.ai/reference/search-api-guide-for-coding-agents#content-configuration).
+ *
+ * <p>{@code includeDomains} is Exa's hard domain filter, sent only when non-empty — {@code
+ * useAutoprompt} is deliberately never sent; Exa's own docs call it deprecated and a no-op.
  */
 @Component
 class ExaSearchTools implements SearchTools {
@@ -54,7 +58,7 @@ class ExaSearchTools implements SearchTools {
   }
 
   @Override
-  public List<SearchResult> search(String query, SearchType type) {
+  public List<SearchResult> search(String query, SearchType type, List<String> includeDomains) {
     hostRateLimiter.acquire(EXA_HOST);
     ExaResponse response;
     try {
@@ -64,7 +68,9 @@ class ExaSearchTools implements SearchTools {
               .uri(EXA_SEARCH_URL)
               .header("x-api-key", apiKey)
               .contentType(MediaType.APPLICATION_JSON)
-              .body(new ExaRequest(query, type.exaValue(), MAX_RESULTS, new ExaContents(true)))
+              .body(
+                  new ExaRequest(
+                      query, type.exaValue(), MAX_RESULTS, includeDomains, new ExaContents(true)))
               .retrieve()
               .body(ExaResponse.class);
     } catch (HttpClientErrorException.TooManyRequests e) {
@@ -131,7 +137,13 @@ class ExaSearchTools implements SearchTools {
     }
   }
 
-  private record ExaRequest(String query, String type, int numResults, ExaContents contents) {}
+  @JsonInclude(JsonInclude.Include.NON_EMPTY)
+  private record ExaRequest(
+      String query,
+      String type,
+      int numResults,
+      List<String> includeDomains,
+      ExaContents contents) {}
 
   private record ExaContents(boolean highlights) {}
 

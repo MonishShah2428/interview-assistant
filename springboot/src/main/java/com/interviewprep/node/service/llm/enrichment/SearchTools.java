@@ -19,8 +19,13 @@ public interface SearchTools {
    * fixed server-side regardless of {@code type} — see {@link
    * com.interviewprep.node.service.llm.enrichment.impl.ExaSearchTools}'s {@code MAX_RESULTS} —
    * since that bounds the token cost of every downstream tool-calling round trip.
+   *
+   * <p>{@code includeDomains}, when non-empty, is Exa's own hard domain filter — "only return
+   * results from these domains," not a ranking boost — so a caller that always wants the open web
+   * must pass {@code List.of()}, never a domain list it isn't confident covers the query, or it
+   * risks a short or empty result set with no fallback to the wider web.
    */
-  List<SearchResult> search(String query, SearchType type);
+  List<SearchResult> search(String query, SearchType type, List<String> includeDomains);
 
   /**
    * Resolves {@code url} and reports whether it's live. HEAD by default; some hosts reject HEAD, in

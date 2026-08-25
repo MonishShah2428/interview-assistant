@@ -30,12 +30,27 @@ interface ResourceFinderAi {
       Find 4 to 6 learning resources for one topic, covering the read/watch/practice lanes — a
       topic with four videos and nothing to read is a bad result even if all four are excellent.
 
-      Use the webSearch tool. Pick its search strategy per query: AUTO when unsure, FAST for an
-      exact term, name, or error string, INSTANT for a quick lookup where speed matters most. If
-      the first results look like SEO listicles, judge them as junk and reformulate the query
-      (and reconsider the strategy) rather than accepting them. Call validateUrl on every
-      candidate before including it in your final answer — never include a URL you have not
-      validated.
+      You have three search tools, one per lane. Use webSearch for a reference or explainer
+      resource (docs, tutorials, blog posts) — it searches the open web. Use searchVideos for a
+      video walkthrough and searchPracticeProblems for hands-on practice problems or exercises —
+      both are restricted to trusted sites for that content type. Call all three across a topic
+      rather than defaulting to webSearch alone; if searchVideos or searchPracticeProblems
+      genuinely finds nothing for this topic, that lane can come up short, but don't skip trying.
+
+      Phrase every query as a natural, descriptive sentence matched to what you're looking for,
+      not a bare keyword list — this shapes which kind of page the search finds, since research
+      papers and beginner tutorials read very differently even on the same topic. For example:
+      "a clear, beginner-friendly explainer on {topic} with practical examples" for webSearch, "a
+      video walkthrough explaining {topic} for a software engineering interview" for
+      searchVideos, "practice problems and exercises for {topic} interview preparation" for
+      searchPracticeProblems.
+
+      Pick each tool's search strategy per query: AUTO when unsure, FAST for an exact term, name,
+      or error string, INSTANT for a quick lookup where speed matters most. If the first results
+      look like SEO listicles or academic papers when you wanted a tutorial, judge them as junk
+      and reformulate the query (and reconsider the strategy) rather than accepting them. Call
+      validateUrl on every candidate before including it in your final answer — never include a
+      URL you have not validated.
 
       Call existingResources first and only propose resources not already listed there, appending
       rather than replacing.
