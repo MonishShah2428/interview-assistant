@@ -7,6 +7,7 @@ import com.interviewprep.node.service.llm.enrichment.ResourceFinder;
 import com.interviewprep.node.service.llm.enrichment.RetryableEnrichmentException;
 import com.interviewprep.node.service.llm.enrichment.SearchResult;
 import com.interviewprep.node.service.llm.enrichment.SearchTools;
+import com.interviewprep.node.service.llm.enrichment.SearchType;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.model.chat.ChatModel;
@@ -97,8 +98,13 @@ class AgenticResourceFinder implements ResourceFinder {
     }
 
     @Tool("Search the web for learning resources on a query.")
-    public List<SearchResult> webSearch(@P("search query") String query) {
-      return searchTools.search(query);
+    public List<SearchResult> webSearch(
+        @P("search query") String query,
+        @P(
+                "search strategy: AUTO when unsure, FAST for exact terms or names, INSTANT for"
+                    + " quick lookups where speed matters most")
+            SearchType type) {
+      return searchTools.search(query, type);
     }
 
     @Tool("Check whether a URL actually resolves before including it in results.")

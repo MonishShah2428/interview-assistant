@@ -7,6 +7,7 @@ import com.interviewprep.node.service.llm.enrichment.NonRetryableEnrichmentExcep
 import com.interviewprep.node.service.llm.enrichment.RetryableEnrichmentException;
 import com.interviewprep.node.service.llm.enrichment.SearchResult;
 import com.interviewprep.node.service.llm.enrichment.SearchTools;
+import com.interviewprep.node.service.llm.enrichment.SearchType;
 import java.net.URI;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,10 +19,16 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 /**
- * Wraps Exa's neural search for {@link #search} and does its own HEAD/ranged-GET resolution for
- * {@link #validateUrl}. One host-rate-limited {@link RestClient} handles both — absolute URIs are
- * passed per-request rather than binding a base URL, since {@link #validateUrl} targets arbitrary
- * hosts.
+ * Wraps Exa search for {@link #search} and does its own HEAD/ranged-GET resolution for {@link
+ * #validateUrl}. One host-rate-limited {@link RestClient} handles both — absolute URIs are passed
+ * per-request rather than binding a base URL, since {@link #validateUrl} targets arbitrary hosts.
+ *
+ * <p>Requests {@code contents.highlights} rather than {@code contents.text} — Exa's own guidance
+ * for agent tool-calling is to prefer highlights (query-relevant excerpts) over full page text,
+ * since the agentic resource-finder re-feeds every search result into the model's context on each
+ * tool-calling round trip, and highlights run roughly 10x fewer tokens than full text for
+ * comparable relevance (see
+ * https://docs.exa.ai/reference/search-api-guide-for-coding-agents#content-configuration).
  */
 @Component
 class ExaSearchTools implements SearchTools {
@@ -29,11 +36,6 @@ class ExaSearchTools implements SearchTools {
   private static final String EXA_SEARCH_URL = "https://api.exa.ai/search";
   private static final String EXA_HOST = "api.exa.ai";
   private static final int MAX_RESULTS = 8;
-  // Exa's full page text can run to thousands of tokens per result; the agentic resource-finder
-  // feeds every search result back into the model's context on each of its tool-calling round
-  // trips, so uncapped text quickly exhausts a provider's per-minute token budget. A snippet this
-  // size is still plenty for the model to judge relevance and write a citation from.
-  private static final int MAX_TEXT_CHARS = 600;
 
   private final RestClient restClient;
   private final String apiKey;
@@ -52,7 +54,7 @@ class ExaSearchTools implements SearchTools {
   }
 
   @Override
-  public List<SearchResult> search(String query) {
+  public List<SearchResult> search(String query, SearchType type) {
     hostRateLimiter.acquire(EXA_HOST);
     ExaResponse response;
     try {
@@ -62,8 +64,7 @@ class ExaSearchTools implements SearchTools {
               .uri(EXA_SEARCH_URL)
               .header("x-api-key", apiKey)
               .contentType(MediaType.APPLICATION_JSON)
-              .body(
-                  new ExaRequest(query, MAX_RESULTS, new ExaContents(new ExaText(MAX_TEXT_CHARS))))
+              .body(new ExaRequest(query, type.exaValue(), MAX_RESULTS, new ExaContents(true)))
               .retrieve()
               .body(ExaResponse.class);
     } catch (HttpClientErrorException.TooManyRequests e) {
@@ -77,7 +78,12 @@ class ExaSearchTools implements SearchTools {
       return List.of();
     }
     return response.results().stream()
-        .map(r -> new SearchResult(r.title(), r.url(), r.text()))
+        .map(
+            r ->
+                new SearchResult(
+                    r.title(),
+                    r.url(),
+                    r.highlights() == null ? "" : String.join(" ", r.highlights())))
         .toList();
   }
 
@@ -125,13 +131,11 @@ class ExaSearchTools implements SearchTools {
     }
   }
 
-  private record ExaRequest(String query, int numResults, ExaContents contents) {}
+  private record ExaRequest(String query, String type, int numResults, ExaContents contents) {}
 
-  private record ExaContents(ExaText text) {}
-
-  private record ExaText(int maxCharacters) {}
+  private record ExaContents(boolean highlights) {}
 
   private record ExaResponse(List<ExaResult> results) {}
 
-  private record ExaResult(String title, String url, String text) {}
+  private record ExaResult(String title, String url, List<String> highlights) {}
 }

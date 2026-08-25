@@ -14,8 +14,13 @@ public interface SearchTools {
 
   /**
    * Runs one web search and returns raw, unvalidated hits — no URL resolution, no classification.
+   * {@code type} is Exa's own search-strategy field, passed through as-is so the caller (the
+   * tool-calling LLM, via {@code ResourceSearchToolAdapter}) can choose per query; result count is
+   * fixed server-side regardless of {@code type} — see {@link
+   * com.interviewprep.node.service.llm.enrichment.impl.ExaSearchTools}'s {@code MAX_RESULTS} —
+   * since that bounds the token cost of every downstream tool-calling round trip.
    */
-  List<SearchResult> search(String query);
+  List<SearchResult> search(String query, SearchType type);
 
   /**
    * Resolves {@code url} and reports whether it's live. HEAD by default; some hosts reject HEAD, in

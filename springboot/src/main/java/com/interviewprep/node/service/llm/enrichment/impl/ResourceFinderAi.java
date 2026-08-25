@@ -30,9 +30,12 @@ interface ResourceFinderAi {
       Find 4 to 6 learning resources for one topic, covering the read/watch/practice lanes — a
       topic with four videos and nothing to read is a bad result even if all four are excellent.
 
-      Use the webSearch tool. If the first results look like SEO listicles, judge them as junk
-      and reformulate the query rather than accepting them. Call validateUrl on every candidate
-      before including it in your final answer — never include a URL you have not validated.
+      Use the webSearch tool. Pick its search strategy per query: AUTO when unsure, FAST for an
+      exact term, name, or error string, INSTANT for a quick lookup where speed matters most. If
+      the first results look like SEO listicles, judge them as junk and reformulate the query
+      (and reconsider the strategy) rather than accepting them. Call validateUrl on every
+      candidate before including it in your final answer — never include a URL you have not
+      validated.
 
       Call existingResources first and only propose resources not already listed there, appending
       rather than replacing.
