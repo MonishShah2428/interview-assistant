@@ -15,6 +15,7 @@ import com.interviewprep.node.service.llm.enrichment.ProposedConcept;
 import com.interviewprep.node.service.llm.enrichment.ProposedResource;
 import com.interviewprep.node.service.llm.enrichment.ResourceFinder;
 import com.interviewprep.node.service.llm.enrichment.RetryableEnrichmentException;
+import com.interviewprep.node.sse.EnrichmentEvent;
 import com.interviewprep.node.sse.EnrichmentEventPublisher;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -139,12 +140,14 @@ public class EnrichmentService {
       requiredTemplate.executeWithoutResult(
           status -> topicRepository.updateEnrichmentStatus(topicId, EnrichmentStatus.ready));
       // Publish after the transaction closes — no networky work while holding a DB connection.
-      enrichmentEventPublisher.publish(ctx.trackId(), topicId, EnrichmentStatus.ready);
+      enrichmentEventPublisher.publish(
+          ctx.trackId(), EnrichmentEvent.initial(topicId, EnrichmentStatus.ready));
     } catch (RuntimeException e) {
       requiredTemplate.executeWithoutResult(
           status -> topicRepository.updateEnrichmentStatus(topicId, EnrichmentStatus.failed));
       if (ctx != null) {
-        enrichmentEventPublisher.publish(ctx.trackId(), topicId, EnrichmentStatus.failed);
+        enrichmentEventPublisher.publish(
+            ctx.trackId(), EnrichmentEvent.initial(topicId, EnrichmentStatus.failed));
       }
       throw e;
     }
@@ -156,18 +159,28 @@ public class EnrichmentService {
    * for {@link com.interviewprep.node.entity.EnrichmentJobKind#resource_refresh} jobs. Unlike
    * {@link #enrichTopic}, this never touches {@code enrichment_status} — an empty or failed refresh
    * doesn't invalidate a topic's existing content, so there's nothing here to mark {@code failed};
-   * on failure the exception just propagates to the poller for its own retry/backoff.
+   * on failure subscribers are told this attempt failed, and the exception propagates to the poller
+   * for its own retry/backoff. Returns how many genuinely new rows were appended.
    */
-  public void refreshResources(Long topicId) {
+  public int refreshResources(Long topicId) {
     EnrichmentContext ctx = requiredTemplate.execute(status -> gatherContext(topicId));
 
-    List<ProposedResource> proposals = // agent call, no transaction open
-        callWithRetry(() -> resourceFinder.findResources(topicId, ctx.topicLabel(), ctx.level()));
+    int appended;
+    try {
+      List<ProposedResource> proposals = // agent call, no transaction open
+          callWithRetry(() -> resourceFinder.findResources(topicId, ctx.topicLabel(), ctx.level()));
 
-    appendNewResources(topicId, proposals);
+      appended = appendNewResources(topicId, proposals);
 
-    requiredTemplate.executeWithoutResult(
-        status -> topicRepository.updateSearchedAt(topicId, OffsetDateTime.now()));
+      requiredTemplate.executeWithoutResult(
+          status -> topicRepository.updateSearchedAt(topicId, OffsetDateTime.now()));
+    } catch (RuntimeException e) {
+      enrichmentEventPublisher.publish(ctx.trackId(), EnrichmentEvent.refreshFailed(topicId));
+      throw e;
+    }
+
+    enrichmentEventPublisher.publish(ctx.trackId(), EnrichmentEvent.refreshed(topicId, appended));
+    return appended;
   }
 
   /**
@@ -177,9 +190,10 @@ public class EnrichmentService {
    * it. {@code resource_unique_url} is the dedupe guard, not reimplemented here (see {@code
    * Resource}'s Javadoc); a caught violation just means this proposal was already found before.
    */
-  private void appendNewResources(Long topicId, List<ProposedResource> proposals) {
+  private int appendNewResources(Long topicId, List<ProposedResource> proposals) {
     Topic topicRef = topicRepository.getReferenceById(topicId);
     int position = resourceRepository.findByTopicId(topicId).size();
+    int appended = 0;
     for (ProposedResource p : proposals) {
       int rowPosition = position++;
       try {
@@ -195,10 +209,12 @@ public class EnrichmentService {
                         p.citation(),
                         p.sourceQuery(),
                         rowPosition)));
+        appended++;
       } catch (DataIntegrityViolationException alreadyHaveThisUrl) {
         // Already have this URL for this topic — exactly the dedupe the constraint exists for.
       }
     }
+    return appended;
   }
 
   private EnrichmentContext gatherContext(Long topicId) {

@@ -1,9 +1,11 @@
 package com.interviewprep.track.controller;
 
 import com.interviewprep.track.service.TrackService;
+import com.interviewprep.track.service.dto.TrackSummaryView;
 import com.interviewprep.track.service.dto.TrackView;
 import com.interviewprep.track.service.llm.TrackDecompositionException;
 import jakarta.validation.Valid;
+import java.util.List;
 import java.util.NoSuchElementException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -33,6 +35,11 @@ class TrackController {
   ResponseEntity<TrackView> createTrack(@Valid @RequestBody CreateTrackRequest request) {
     TrackView track = trackService.createTrack(request.goal(), request.level());
     return ResponseEntity.status(HttpStatus.CREATED).body(track);
+  }
+
+  @GetMapping
+  ResponseEntity<List<TrackSummaryView>> listTracks() {
+    return ResponseEntity.ok(trackService.listTracks());
   }
 
   @GetMapping("/{trackId}")

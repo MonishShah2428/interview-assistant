@@ -1,7 +1,9 @@
 package com.interviewprep.node.controller;
 
 import com.interviewprep.node.service.ExpansionService;
+import com.interviewprep.node.service.TopicQueryService;
 import com.interviewprep.node.service.dto.ExpandTopicResponse;
+import com.interviewprep.node.service.dto.TopicDetailView;
 import com.interviewprep.node.sse.EnrichmentEventPublisher;
 import java.util.NoSuchElementException;
 import org.springframework.http.HttpStatus;
@@ -21,12 +23,21 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 class NodeController {
 
   private final ExpansionService expansionService;
+  private final TopicQueryService topicQueryService;
   private final EnrichmentEventPublisher enrichmentEventPublisher;
 
   NodeController(
-      ExpansionService expansionService, EnrichmentEventPublisher enrichmentEventPublisher) {
+      ExpansionService expansionService,
+      TopicQueryService topicQueryService,
+      EnrichmentEventPublisher enrichmentEventPublisher) {
     this.expansionService = expansionService;
+    this.topicQueryService = topicQueryService;
     this.enrichmentEventPublisher = enrichmentEventPublisher;
+  }
+
+  @GetMapping("/{trackId}/topics/{topicId}")
+  ResponseEntity<TopicDetailView> getTopic(@PathVariable Long trackId, @PathVariable Long topicId) {
+    return ResponseEntity.ok(topicQueryService.getTopic(trackId, topicId));
   }
 
   @PostMapping("/{trackId}/topics/{topicId}/expand")

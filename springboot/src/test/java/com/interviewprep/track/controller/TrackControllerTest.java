@@ -2,12 +2,17 @@ package com.interviewprep.track.controller;
 
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.interviewprep.track.service.TrackService;
+import com.interviewprep.track.service.dto.TrackSummaryView;
 import com.interviewprep.track.service.dto.TrackView;
 import com.interviewprep.track.service.llm.TrackDecompositionException;
+import java.time.OffsetDateTime;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -66,5 +71,23 @@ class TrackControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"goal\": \"prep me for an SDE II role\", \"level\": \"mid\"}"))
         .andExpect(status().isCreated());
+  }
+
+  @Test
+  void listTracksReturnsSummaries() throws Exception {
+    when(trackService.listTracks())
+        .thenReturn(
+            List.of(
+                new TrackSummaryView(
+                    7L,
+                    "prep me for an SDE II role",
+                    "mid",
+                    OffsetDateTime.parse("2026-10-13T10:00:00Z"))));
+
+    mockMvc
+        .perform(get("/tracks"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].id").value(7))
+        .andExpect(jsonPath("$[0].level").value("mid"));
   }
 }

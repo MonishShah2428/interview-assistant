@@ -8,6 +8,7 @@ import com.interviewprep.node.repository.TopicRepository;
 import com.interviewprep.node.repository.TrackRepository;
 import com.interviewprep.node.service.llm.LabelNormalizer;
 import com.interviewprep.track.service.dto.TopicNodeView;
+import com.interviewprep.track.service.dto.TrackSummaryView;
 import com.interviewprep.track.service.dto.TrackView;
 import com.interviewprep.track.service.llm.DecomposedTopic;
 import com.interviewprep.track.service.llm.TrackDecomposer;
@@ -71,6 +72,18 @@ public class TrackService {
     List<Topic> roots = requiredTemplate.execute(status -> createRoots(track, proposals));
 
     return toTrackView(track, roots);
+  }
+
+  /** Every track the (placeholder) user owns, newest first. */
+  public List<TrackSummaryView> listTracks() {
+    return requiredTemplate.execute(
+        status ->
+            trackRepository.findByUserIdOrderByCreatedAtDesc(PLACEHOLDER_USER_ID).stream()
+                .map(
+                    t ->
+                        new TrackSummaryView(
+                            t.getId(), t.getGoal(), t.getLevel(), t.getCreatedAt()))
+                .toList());
   }
 
   /**

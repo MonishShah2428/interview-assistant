@@ -1,6 +1,5 @@
 package com.interviewprep.node.sse;
 
-import com.interviewprep.node.entity.EnrichmentStatus;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -31,15 +30,22 @@ public class EnrichmentEventPublisher {
     emitter.onCompletion(() -> emitters.remove(emitter));
     emitter.onTimeout(() -> emitters.remove(emitter));
     emitter.onError(e -> emitters.remove(emitter));
+    // SseEmitter writes nothing until its first send, so without this the response headers never
+    // flush and a browser EventSource sits in CONNECTING until the first real event. An early send
+    // is buffered and flushed as soon as the handler returns. Comments are ignored by clients.
+    try {
+      emitter.send(SseEmitter.event().comment("connected"));
+    } catch (IOException e) {
+      emitters.remove(emitter);
+    }
     return emitter;
   }
 
-  public void publish(Long trackId, Long topicId, EnrichmentStatus status) {
+  public void publish(Long trackId, EnrichmentEvent event) {
     List<SseEmitter> emitters = emittersByTrack.get(trackId);
     if (emitters == null) {
       return;
     }
-    EnrichmentEvent event = new EnrichmentEvent(topicId, status);
     for (SseEmitter emitter : emitters) {
       try {
         emitter.send(SseEmitter.event().name("enrichment").data(event));
