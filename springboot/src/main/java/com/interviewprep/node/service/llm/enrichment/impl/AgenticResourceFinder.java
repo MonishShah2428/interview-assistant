@@ -10,6 +10,7 @@ import com.interviewprep.node.service.llm.enrichment.SearchTools;
 import com.interviewprep.node.service.llm.enrichment.SearchType;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.exception.InvalidRequestException;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.service.AiServices;
 import java.util.List;
@@ -88,11 +89,25 @@ class AgenticResourceFinder implements ResourceFinder {
         throw new RetryableEnrichmentException(
             "resource finder exceeded " + MAX_ELAPSED_SECONDS + "s", cause);
       }
+      if (isMalformedToolCall(cause)) {
+        throw new RetryableEnrichmentException("model made a malformed tool call", cause);
+      }
       if (cause instanceof RuntimeException re) {
         throw re;
       }
       throw new NonRetryableEnrichmentException("resource finder failed", cause);
     }
+  }
+
+  /**
+   * gpt-oss sometimes sends its final answer as a call to a tool named "JSON" that doesn't exist,
+   * and Groq rejects the whole request ({@code tool_use_failed}). It's a sampling quirk, not a bad
+   * request, so a fresh attempt usually succeeds.
+   */
+  private static boolean isMalformedToolCall(Throwable cause) {
+    return cause instanceof InvalidRequestException
+        && cause.getMessage() != null
+        && cause.getMessage().contains("tool_use_failed");
   }
 
   /**

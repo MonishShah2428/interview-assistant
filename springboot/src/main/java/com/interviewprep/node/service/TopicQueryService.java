@@ -1,9 +1,11 @@
 package com.interviewprep.node.service;
 
 import com.interviewprep.node.entity.Concept;
+import com.interviewprep.node.entity.EnrichmentJob;
 import com.interviewprep.node.entity.Resource;
 import com.interviewprep.node.entity.Topic;
 import com.interviewprep.node.repository.ConceptRepository;
+import com.interviewprep.node.repository.EnrichmentJobRepository;
 import com.interviewprep.node.repository.ResourceRepository;
 import com.interviewprep.node.repository.TopicRepository;
 import com.interviewprep.node.service.dto.ConceptView;
@@ -28,16 +30,19 @@ public class TopicQueryService {
   private final TopicRepository topicRepository;
   private final ResourceRepository resourceRepository;
   private final ConceptRepository conceptRepository;
+  private final EnrichmentJobRepository enrichmentJobRepository;
   private final TransactionTemplate requiredTemplate;
 
   TopicQueryService(
       TopicRepository topicRepository,
       ResourceRepository resourceRepository,
       ConceptRepository conceptRepository,
+      EnrichmentJobRepository enrichmentJobRepository,
       PlatformTransactionManager transactionManager) {
     this.topicRepository = topicRepository;
     this.resourceRepository = resourceRepository;
     this.conceptRepository = conceptRepository;
+    this.enrichmentJobRepository = enrichmentJobRepository;
     this.requiredTemplate = new TransactionTemplate(transactionManager);
     this.requiredTemplate.setReadOnly(true);
   }
@@ -60,6 +65,7 @@ public class TopicQueryService {
         topic.getExpansionStatus(),
         topic.getEnrichmentStatus(),
         topic.getSearchedAt(),
+        enrichmentJobRepository.hasLiveJob(topicId, EnrichmentJob.MAX_ATTEMPTS),
         resourceRepository.findByTopicId(topicId).stream()
             .sorted(RESOURCE_ORDER)
             .map(TopicQueryService::toResourceDetail)

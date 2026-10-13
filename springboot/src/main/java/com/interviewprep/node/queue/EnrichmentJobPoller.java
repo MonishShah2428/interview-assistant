@@ -1,5 +1,6 @@
 package com.interviewprep.node.queue;
 
+import com.interviewprep.node.entity.EnrichmentJob;
 import com.interviewprep.node.entity.EnrichmentJobKind;
 import com.interviewprep.node.repository.EnrichmentJobRepository;
 import com.interviewprep.node.repository.EnrichmentJobRepository.ClaimedJob;
@@ -8,9 +9,11 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -30,6 +33,13 @@ import org.springframework.transaction.support.TransactionTemplate;
  * transient DB blip during the claim/status-transition itself) are still worth one more pass at
  * job-queue timescale.
  *
+ * <p>Claims only as many jobs as it has free slots ({@code enrichment.max-concurrent-jobs}, default
+ * 1). Claiming more than can run would mark rows {@code processing} while they wait in the executor
+ * queue, and on Groq's 8k tokens-per-minute tier concurrent searches mostly just take turns: each
+ * agent conversation is resent every round, so two at once roughly halve each one's budget, push
+ * both toward the agent's time limit, and exhaust the rate-limit retries. One at a time, each topic
+ * finishes in a minute or two and results arrive one by one.
+ *
  * <p>Gated behind {@code enrichment.polling.enabled} (defaults on) so tests that drive {@link
  * EnrichmentService} directly can turn this off — otherwise the background poll tick races those
  * tests for the same {@code enrichment_status} claim.
@@ -40,20 +50,23 @@ class EnrichmentJobPoller {
 
   private static final Logger log = LoggerFactory.getLogger(EnrichmentJobPoller.class);
 
-  private static final int BATCH_SIZE = 5;
-  private static final int MAX_ATTEMPTS = 5;
+  private static final int MAX_ATTEMPTS = EnrichmentJob.MAX_ATTEMPTS;
   private static final Duration RETRY_BACKOFF = Duration.ofSeconds(60);
 
   private final EnrichmentJobRepository jobRepository;
   private final EnrichmentService enrichmentService;
   private final AsyncTaskExecutor executor;
   private final TransactionTemplate requiredTemplate;
+  private final int maxConcurrentJobs;
+  private final AtomicInteger inFlight = new AtomicInteger();
 
   EnrichmentJobPoller(
       EnrichmentJobRepository jobRepository,
       EnrichmentService enrichmentService,
       @Qualifier("enrichmentJobExecutor") AsyncTaskExecutor executor,
-      PlatformTransactionManager transactionManager) {
+      PlatformTransactionManager transactionManager,
+      @Value("${enrichment.max-concurrent-jobs:1}") int maxConcurrentJobs) {
+    this.maxConcurrentJobs = maxConcurrentJobs;
     this.jobRepository = jobRepository;
     this.enrichmentService = enrichmentService;
     this.executor = executor;
@@ -62,10 +75,16 @@ class EnrichmentJobPoller {
 
   @Scheduled(fixedDelay = 2000)
   void poll() {
+    int free = maxConcurrentJobs - inFlight.get();
+    if (free <= 0) {
+      return;
+    }
     List<ClaimedJob> claimed =
-        requiredTemplate.execute(status -> jobRepository.claimBatch(BATCH_SIZE, MAX_ATTEMPTS));
+        requiredTemplate.execute(status -> jobRepository.claimBatch(free, MAX_ATTEMPTS));
     for (ClaimedJob job : claimed) {
-      CompletableFuture.runAsync(() -> process(job), executor);
+      inFlight.incrementAndGet();
+      CompletableFuture.runAsync(() -> process(job), executor)
+          .whenComplete((ignored, error) -> inFlight.decrementAndGet());
     }
   }
 

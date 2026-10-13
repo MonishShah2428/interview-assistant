@@ -114,6 +114,19 @@
 				<artifactId>spring-boot-maven-plugin</artifactId>
 			</plugin>
 			<plugin>
+				<!-- Tests share the dev Postgres. With polling on, every @SpringBootTest context runs a
+				     live job poller (and the startup reconciler) against real data, claiming other tests'
+				     jobs and running them with a placeholder Groq key. Off for every test; a test that
+				     exercises the poller constructs it itself. -->
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<systemPropertyVariables>
+						<enrichment.polling.enabled>false</enrichment.polling.enabled>
+					</systemPropertyVariables>
+				</configuration>
+			</plugin>
+			<plugin>
 				<groupId>com.diffplug.spotless</groupId>
 				<artifactId>spotless-maven-plugin</artifactId>
 				<version>2.44.5</version>

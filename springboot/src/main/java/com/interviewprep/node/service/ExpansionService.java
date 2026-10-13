@@ -122,6 +122,10 @@ public class ExpansionService {
    * even after finding resources, and it never retries missing concepts. {@code enrichTopic}
    * resumes, skipping whichever producer already persisted rows, and only it can reach {@code
    * ready}.
+   *
+   * <p>For a {@code failed} or {@code pending} topic, that {@code initial} job is only added when
+   * the topic has no live one; if a retry or its first search is already queued or running, this
+   * does nothing rather than queue a duplicate.
    */
   public void requestResourceRefresh(Long trackId, Long topicId) {
     requiredTemplate.executeWithoutResult(
@@ -130,10 +134,16 @@ public class ExpansionService {
           EnrichmentStatus current =
               topicRepository.findById(topicId).orElseThrow().getEnrichmentStatus();
           EnrichmentJobKind kind =
-              current == EnrichmentStatus.failed
-                  ? EnrichmentJobKind.initial
-                  : EnrichmentJobKind.resource_refresh;
-          enrichmentJobRepository.save(new EnrichmentJob(topicId, kind));
+              switch (current) {
+                case failed, pending ->
+                    enrichmentJobRepository.hasLiveJob(topicId, EnrichmentJob.MAX_ATTEMPTS)
+                        ? null
+                        : EnrichmentJobKind.initial;
+                case enriching, ready -> EnrichmentJobKind.resource_refresh;
+              };
+          if (kind != null) {
+            enrichmentJobRepository.save(new EnrichmentJob(topicId, kind));
+          }
         });
   }
 

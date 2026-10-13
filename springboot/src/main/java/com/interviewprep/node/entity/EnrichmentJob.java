@@ -50,6 +50,12 @@ public class EnrichmentJob {
   @Column(name = "updated_at", nullable = false)
   private OffsetDateTime updatedAt;
 
+  /**
+   * Attempts after which the poller stops claiming a job. A job below this, or one currently
+   * processing, is "live": the topic it belongs to will still be worked on.
+   */
+  public static final int MAX_ATTEMPTS = 5;
+
   EnrichmentJob() {}
 
   public EnrichmentJob(Long topicId) {

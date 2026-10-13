@@ -18,5 +18,7 @@ public record TopicDetailView(
     ExpansionStatus expansionStatus,
     EnrichmentStatus enrichmentStatus,
     OffsetDateTime searchedAt,
+    /** A search for this topic is queued or running, e.g. the queue's retry after a failure. */
+    boolean searchQueued,
     List<ResourceDetailView> resources,
     List<ConceptView> concepts) {}

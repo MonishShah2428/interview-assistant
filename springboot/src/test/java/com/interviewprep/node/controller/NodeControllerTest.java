@@ -44,6 +44,7 @@ class NodeControllerTest {
                 ExpansionStatus.not_expanded,
                 EnrichmentStatus.ready,
                 null,
+                false,
                 List.of(
                     new ResourceDetailView(
                         10L,
