@@ -1,0 +1,165 @@
+@import "tailwindcss";
+
+/* Semantic tokens. Dark is the default; light overrides the same names. See DESIGN.md. */
+:root {
+  --bg: #12162a;
+  --surface: #191e36;
+  --surface-2: #232946;
+  --line: #2e3556;
+  --fg: #ece7da;
+  --muted: #a6a9c0;
+  --mark: #f4d35e;
+  --on-mark: #1b1a10;
+  --ready: #6fcf97;
+  --working: #93a5ff;
+  --failed: #ff8a80;
+  --idle: #7d82a3;
+  --lane-read: #86b7ea;
+  --lane-watch: #f0909f;
+  --lane-practice: #72d4aa;
+  --ring: #f4d35e;
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --bg: #f3f4f8;
+  --surface: #ffffff;
+  --surface-2: #e9ebf2;
+  --line: #d3d6e2;
+  --fg: #171b30;
+  --muted: #50556e;
+  --mark: #f7dc6f;
+  --on-mark: #1b1a10;
+  --ready: #17703f;
+  --working: #4054c8;
+  --failed: #c2362b;
+  --idle: #7a7f98;
+  --lane-read: #2862a8;
+  --lane-watch: #b23a55;
+  --lane-practice: #126b4a;
+  --ring: #1b1f3a;
+  color-scheme: light;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-mark: var(--mark);
+  --color-on-mark: var(--on-mark);
+  --color-ready: var(--ready);
+  --color-working: var(--working);
+  --color-failed: var(--failed);
+  --color-idle: var(--idle);
+  --color-lane-read: var(--lane-read);
+  --color-lane-watch: var(--lane-watch);
+  --color-lane-practice: var(--lane-practice);
+  --color-ring: var(--ring);
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "IBM Plex Serif", ui-serif, Georgia, serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* The one bold device: a highlighter swipe behind text. Slightly skewed and uneven so it
+   reads as a marker stroke rather than a UI pill. */
+/* The ragged ends sit in the horizontal padding, never under a glyph, because text on the
+   marker is dark and would vanish on the dark ground if it fell outside the stroke. */
+.marker {
+  padding-inline: 0.3em;
+  margin-inline: -0.3em;
+  background-image: linear-gradient(
+    100deg,
+    transparent 0,
+    color-mix(in srgb, var(--mark) 88%, transparent) 0.25em,
+    var(--mark) 60%,
+    color-mix(in srgb, var(--mark) 82%, transparent) calc(100% - 0.25em),
+    transparent 100%
+  );
+  background-size: 100% 82%;
+  background-position: 0 60%;
+  background-repeat: no-repeat;
+  color: var(--on-mark);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.marker-soft {
+  background-image: linear-gradient(
+    100deg,
+    transparent 0.2em,
+    color-mix(in srgb, var(--mark) 26%, transparent) 0.35em,
+    color-mix(in srgb, var(--mark) 22%, transparent) calc(100% - 0.2em),
+    transparent 100%
+  );
+  background-size: 100% 70%;
+  background-position: 0 70%;
+  background-repeat: no-repeat;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.pulse-dot {
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: -200px 0;
+  }
+  to {
+    background-position: 200px 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-2) 0, var(--line) 80px, var(--surface-2) 160px);
+  background-size: 400px 100%;
+  animation: shimmer 1.3s linear infinite;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
