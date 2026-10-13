@@ -67,6 +67,9 @@ export function TopicPanel({
   // "Search again" on a failed topic runs the append-only refresh, which never touches
   // enrichment_status. Once that lands resources, the topic is usable, so show it as ready.
   const status = topic.enrichmentStatus === "failed" && topic.resources.length > 0 ? "ready" : topic.enrichmentStatus;
+  // A failed attempt with another already queued isn't final: say so, and don't offer a button
+  // that would only queue a duplicate.
+  const retrying = status === "failed" && topic.searchQueued;
   const paths = info?.paths ?? [[]];
   const children = info?.node.children ?? [];
   const expanding = expandPending || topic.expansionStatus === "expanding";
@@ -109,7 +112,7 @@ export function TopicPanel({
             <span className="text-sm text-muted">Topic group. Break it down to get subtopics with resources.</span>
           ) : (
             <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <EnrichmentLabel status={status} />
+              <EnrichmentLabel status={status} retrying={retrying} />
               {topic.searchedAt && (
                 <span className="text-sm text-muted">Searched {relativeTime(topic.searchedAt)}</span>
               )}
@@ -117,7 +120,7 @@ export function TopicPanel({
           )}
           <span className="flex flex-wrap gap-2 sm:ml-auto">
             <ExpandButton topic={topic} expanding={expanding} onExpand={onExpand} />
-            {!topic.isRoot && (status === "ready" || status === "failed") && (
+            {!topic.isRoot && (status === "ready" || (status === "failed" && !retrying)) && (
               <Button
                 variant={status === "failed" ? "primary" : "secondary"}
                 busy={refreshing}
@@ -140,7 +143,7 @@ export function TopicPanel({
         <Subtopics children={children} expanding={expanding && children.length === 0} onSelect={onSelect} />
       )}
 
-      {!topic.isRoot && <EnrichedContent topic={topic} status={status} />}
+      {!topic.isRoot && <EnrichedContent topic={topic} status={status} retrying={retrying} />}
     </article>
   );
 }
@@ -203,7 +206,15 @@ function Subtopics({
   );
 }
 
-function EnrichedContent({ topic, status }: { topic: TopicDetail; status: TopicDetail["enrichmentStatus"] }) {
+function EnrichedContent({
+  topic,
+  status,
+  retrying,
+}: {
+  topic: TopicDetail;
+  status: TopicDetail["enrichmentStatus"];
+  retrying: boolean;
+}) {
   if (status === "pending" || status === "enriching") {
     return (
       <section className="py-8" aria-busy="true">
@@ -233,8 +244,9 @@ function EnrichedContent({ topic, status }: { topic: TopicDetail; status: TopicD
             Resources
           </h2>
           <p className="mt-3 max-w-[60ch] text-muted">
-            The resource search didn't finish for this topic, even after retrying. This usually means the language
-            model's rate limit was hit. Use Search again to try once more.
+            {retrying
+              ? "The last search attempt didn't finish, usually because the language model was busy. Another attempt is queued and starts within a minute, and results will appear here on their own."
+              : "The resource search didn't finish for this topic, even after retrying. This usually means the language model's rate limit was hit. Use Search again to try once more."}
           </p>
         </section>
       ) : (

@@ -55,6 +55,8 @@ export interface TopicDetail {
   expansionStatus: ExpansionStatus;
   enrichmentStatus: EnrichmentStatus;
   searchedAt: string | null;
+  /** A search for this topic is queued or running, e.g. an automatic retry after a failure. */
+  searchQueued: boolean;
   resources: ResourceDetail[];
   concepts: Concept[];
 }

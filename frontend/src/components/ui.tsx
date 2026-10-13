@@ -79,8 +79,11 @@ const ENRICHMENT_COPY: Record<EnrichmentStatus, { text: string; icon: typeof Cir
   failed: { text: "Search failed", icon: CircleAlert, tone: "text-failed" },
 };
 
-export function EnrichmentLabel({ status }: { status: EnrichmentStatus }) {
-  const { text, icon: Icon, tone } = ENRICHMENT_COPY[status];
+const RETRYING_COPY = { text: "Retrying shortly", icon: CircleDashed, tone: "text-working" };
+
+/** {@code retrying}: the last attempt failed but another is already queued, so it isn't final. */
+export function EnrichmentLabel({ status, retrying = false }: { status: EnrichmentStatus; retrying?: boolean }) {
+  const { text, icon: Icon, tone } = retrying ? RETRYING_COPY : ENRICHMENT_COPY[status];
   return (
     <span className={clsx("inline-flex items-center gap-1.5 text-sm font-medium", tone)}>
       <Icon aria-hidden strokeWidth={1.75} className={clsx("size-4", status === "enriching" && "animate-spin")} />
