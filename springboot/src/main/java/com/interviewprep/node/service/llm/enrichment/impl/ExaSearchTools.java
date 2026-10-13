@@ -39,7 +39,14 @@ class ExaSearchTools implements SearchTools {
 
   private static final String EXA_SEARCH_URL = "https://api.exa.ai/search";
   private static final String EXA_HOST = "api.exa.ai";
-  private static final int MAX_RESULTS = 8;
+  private static final int MAX_RESULTS = 5;
+
+  /**
+   * Snippets are resent to the model on every later tool-calling round, so their size adds up
+   * across a search. 500 characters (about 2-3 sentences) is enough to tell a tutorial from a paper
+   * or a listicle, which is all the model uses them for; titles and URLs are never cut.
+   */
+  static final int MAX_SNIPPET_CHARS = 500;
 
   private final RestClient restClient;
   private final String apiKey;
@@ -89,7 +96,9 @@ class ExaSearchTools implements SearchTools {
                 new SearchResult(
                     r.title(),
                     r.url(),
-                    r.highlights() == null ? "" : String.join(" ", r.highlights())))
+                    r.highlights() == null
+                        ? ""
+                        : truncate(String.join(" ", r.highlights()), MAX_SNIPPET_CHARS)))
         .toList();
   }
 
@@ -127,6 +136,19 @@ class ExaSearchTools implements SearchTools {
     return resourceRepository.findByTopicId(topicId).stream()
         .map(r -> new ExistingResource(r.getTitle(), r.getUrl(), r.getLane()))
         .toList();
+  }
+
+  /** Cuts at the last word boundary before {@code max} and marks the cut with an ellipsis. */
+  static String truncate(String text, int max) {
+    String trimmed = text.strip();
+    if (trimmed.length() <= max) {
+      return trimmed;
+    }
+    int cut = trimmed.lastIndexOf(' ', max - 1);
+    if (cut < max / 2) {
+      cut = max - 1; // one very long word: cut mid-word rather than lose most of the snippet
+    }
+    return trimmed.substring(0, cut).stripTrailing() + "…";
   }
 
   private static String extractHost(String url) {

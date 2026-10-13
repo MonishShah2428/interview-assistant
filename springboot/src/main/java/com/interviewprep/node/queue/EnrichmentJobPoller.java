@@ -8,6 +8,8 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.task.AsyncTaskExecutor;
@@ -35,6 +37,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Component
 @ConditionalOnProperty(prefix = "enrichment.polling", name = "enabled", matchIfMissing = true)
 class EnrichmentJobPoller {
+
+  private static final Logger log = LoggerFactory.getLogger(EnrichmentJobPoller.class);
 
   private static final int BATCH_SIZE = 5;
   private static final int MAX_ATTEMPTS = 5;
@@ -73,6 +77,14 @@ class EnrichmentJobPoller {
       }
       requiredTemplate.executeWithoutResult(status -> jobRepository.deleteById(job.getId()));
     } catch (RuntimeException e) {
+      // The only record of why a job failed; markFailed below keeps no reason.
+      log.warn(
+          "enrichment job {} ({}, topic {}) failed; will retry after {}",
+          job.getId(),
+          job.getKind(),
+          job.getTopicId(),
+          RETRY_BACKOFF,
+          e);
       requiredTemplate.executeWithoutResult(
           status ->
               jobRepository.markFailed(

@@ -2,6 +2,7 @@ package com.interviewprep.node.service;
 
 import com.interviewprep.node.entity.EnrichmentJob;
 import com.interviewprep.node.entity.EnrichmentJobKind;
+import com.interviewprep.node.entity.EnrichmentStatus;
 import com.interviewprep.node.entity.ExpansionStatus;
 import com.interviewprep.node.entity.Resource;
 import com.interviewprep.node.entity.Topic;
@@ -115,13 +116,24 @@ public class ExpansionService {
    * enrichment-adjacent work should happen and enqueues it, {@code EnrichmentService} only knows
    * how to run it safely, never why — same split as the initial-enrichment enqueue in {@link
    * #resolveTopicWithResources}.
+   *
+   * <p>A topic whose initial enrichment {@code failed} gets an {@code initial} job instead: a
+   * refresh never touches {@code enrichment_status}, so it would leave the topic {@code failed}
+   * even after finding resources, and it never retries missing concepts. {@code enrichTopic}
+   * resumes, skipping whichever producer already persisted rows, and only it can reach {@code
+   * ready}.
    */
   public void requestResourceRefresh(Long trackId, Long topicId) {
     requiredTemplate.executeWithoutResult(
         status -> {
           requireTopicInTrack(trackId, topicId);
-          enrichmentJobRepository.save(
-              new EnrichmentJob(topicId, EnrichmentJobKind.resource_refresh));
+          EnrichmentStatus current =
+              topicRepository.findById(topicId).orElseThrow().getEnrichmentStatus();
+          EnrichmentJobKind kind =
+              current == EnrichmentStatus.failed
+                  ? EnrichmentJobKind.initial
+                  : EnrichmentJobKind.resource_refresh;
+          enrichmentJobRepository.save(new EnrichmentJob(topicId, kind));
         });
   }
 

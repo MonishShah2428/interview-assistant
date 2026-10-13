@@ -28,6 +28,9 @@ import org.springframework.context.annotation.Primary;
  * https://github.com/langchain4j/langchain4j/issues/3264), so strict JSON schema is load-bearing
  * for those. {@link #toolCallingChatModel} drops that capability for the one caller that needs
  * tools instead: {@code AgenticResourceFinder}.
+ *
+ * <p>Both are wrapped in {@link RateLimitRetryingChatModel}, so every Groq call in the app waits
+ * out a tokens-per-minute rate limit (the time Groq asks for, plus a margin) instead of failing.
  */
 @Configuration
 class ChatModelConfig {
@@ -38,13 +41,14 @@ class ChatModelConfig {
       @Value("${groq.base-url}") String baseUrl,
       @Value("${groq.api-key}") String apiKey,
       @Value("${groq.model-name}") String modelName) {
-    return OpenAiChatModel.builder()
-        .baseUrl(baseUrl)
-        .apiKey(apiKey)
-        .modelName(modelName)
-        .strictJsonSchema(true)
-        .supportedCapabilities(Capability.RESPONSE_FORMAT_JSON_SCHEMA)
-        .build();
+    return new RateLimitRetryingChatModel(
+        OpenAiChatModel.builder()
+            .baseUrl(baseUrl)
+            .apiKey(apiKey)
+            .modelName(modelName)
+            .strictJsonSchema(true)
+            .supportedCapabilities(Capability.RESPONSE_FORMAT_JSON_SCHEMA)
+            .build());
   }
 
   @Bean
@@ -53,6 +57,7 @@ class ChatModelConfig {
       @Value("${groq.base-url}") String baseUrl,
       @Value("${groq.api-key}") String apiKey,
       @Value("${groq.model-name}") String modelName) {
-    return OpenAiChatModel.builder().baseUrl(baseUrl).apiKey(apiKey).modelName(modelName).build();
+    return new RateLimitRetryingChatModel(
+        OpenAiChatModel.builder().baseUrl(baseUrl).apiKey(apiKey).modelName(modelName).build());
   }
 }

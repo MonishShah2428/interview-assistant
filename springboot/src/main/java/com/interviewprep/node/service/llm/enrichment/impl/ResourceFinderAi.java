@@ -48,9 +48,9 @@ interface ResourceFinderAi {
       Pick each tool's search strategy per query: AUTO when unsure, FAST for an exact term, name,
       or error string, INSTANT for a quick lookup where speed matters most. If the first results
       look like SEO listicles or academic papers when you wanted a tutorial, judge them as junk
-      and reformulate the query (and reconsider the strategy) rather than accepting them. Call
-      validateUrl on every candidate before including it in your final answer — never include a
-      URL you have not validated.
+      and reformulate the query (and reconsider the strategy) rather than accepting them. Only
+      propose URLs that appeared in a search result; every URL is checked after you answer, and
+      any that don't resolve are dropped.
 
       Call existingResources first and only propose resources not already listed there, appending
       rather than replacing.

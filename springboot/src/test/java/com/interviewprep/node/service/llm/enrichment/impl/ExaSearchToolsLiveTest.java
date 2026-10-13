@@ -117,6 +117,7 @@ class ExaSearchToolsLiveTest {
     System.out.println("=== " + label + " (" + results.size() + " results) ===");
     for (SearchResult r : results) {
       System.out.println("  - " + r.title() + " -> " + r.url());
+      System.out.println("      snippet (" + r.snippet().length() + " chars): " + r.snippet());
     }
   }
 }

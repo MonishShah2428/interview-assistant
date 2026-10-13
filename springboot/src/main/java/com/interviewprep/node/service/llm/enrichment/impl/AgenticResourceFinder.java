@@ -32,7 +32,10 @@ import org.springframework.stereotype.Component;
 class AgenticResourceFinder implements ResourceFinder {
 
   private static final int MAX_ROUND_TRIPS = 8;
-  private static final int MAX_ELAPSED_SECONDS = 45;
+  // Leaves room for RateLimitRetryingChatModel to wait out a few Groq rate limits (each the time
+  // Groq asks for plus 4s) mid-loop; timing out during a wait would restart the search from round
+  // 1.
+  private static final int MAX_ELAPSED_SECONDS = 120;
   private static final int MAX_RESOURCES = 6;
 
   // Tunable defaults, not exhaustive — the video/practice tools hard-filter to these via Exa's
@@ -66,8 +69,10 @@ class AgenticResourceFinder implements ResourceFinder {
         callWithTimeout(() -> ai.find(topicLabel, level).resources());
 
     return proposals.stream()
-        .filter(p -> searchTools.validateUrl(p.url())) // defensive re-check, never trust the
-        // model's own claim that it validated a URL
+        // URLs are checked here, after the loop, not as a model tool: each tool call is another
+        // round trip that resends the whole conversation, and those extra rounds pushed single
+        // requests past Groq's tokens-per-minute limit.
+        .filter(p -> searchTools.validateUrl(p.url()))
         .limit(MAX_RESOURCES)
         .toList();
   }
@@ -139,11 +144,6 @@ class AgenticResourceFinder implements ResourceFinder {
                     + " quick lookups where speed matters most")
             SearchType type) {
       return searchTools.search(query, type, PRACTICE_DOMAINS);
-    }
-
-    @Tool("Check whether a URL actually resolves before including it in results.")
-    public boolean validateUrl(@P("URL to check") String url) {
-      return searchTools.validateUrl(url);
     }
 
     @Tool("List resources this topic already has, so you don't re-propose them on a refresh.")

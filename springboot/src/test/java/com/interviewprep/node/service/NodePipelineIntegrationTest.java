@@ -1,7 +1,10 @@
 package com.interviewprep.node.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.interviewprep.node.entity.EnrichmentJob;
+import com.interviewprep.node.entity.EnrichmentJobKind;
 import com.interviewprep.node.entity.EnrichmentStatus;
 import com.interviewprep.node.entity.ExpansionStatus;
 import com.interviewprep.node.entity.Resource;
@@ -15,8 +18,11 @@ import com.interviewprep.node.repository.ResourceRepository;
 import com.interviewprep.node.repository.TopicEdgeRepository;
 import com.interviewprep.node.repository.TopicRepository;
 import com.interviewprep.node.repository.TrackRepository;
+import com.interviewprep.node.service.dto.ConceptView;
 import com.interviewprep.node.service.dto.ExpandTopicResponse;
 import com.interviewprep.node.service.dto.ExpandedChild;
+import com.interviewprep.node.service.dto.ResourceDetailView;
+import com.interviewprep.node.service.dto.TopicDetailView;
 import com.interviewprep.node.service.llm.LabelNormalizer;
 import com.interviewprep.node.service.llm.enrichment.ConceptGenerator;
 import com.interviewprep.node.service.llm.enrichment.ProposedConcept;
@@ -30,6 +36,7 @@ import com.interviewprep.track.service.dto.TopicNodeView;
 import com.interviewprep.track.service.dto.TrackView;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,6 +45,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Drives the whole {@code node} pipeline end to end against a real Postgres instance and real
@@ -80,6 +88,8 @@ class NodePipelineIntegrationTest {
   @Autowired
   @Qualifier("applicationTaskExecutor")
   private AsyncTaskExecutor executor;
+
+  @Autowired private TopicQueryService topicQueryService;
 
   @Autowired
   private TrackService trackService; // real bean — getTrack never touches TrackDecomposer
@@ -303,15 +313,61 @@ class NodePipelineIntegrationTest {
             .topicId();
     int beforeRefresh = resourceRepository.findByTopicId(loadBalancingId).size();
 
-    enrichmentService.refreshResources(loadBalancingId);
+    assertThat(enrichmentService.refreshResources(loadBalancingId)).isEqualTo(1);
 
     List<Resource> afterRefresh = resourceRepository.findByTopicId(loadBalancingId);
     assertThat(afterRefresh).hasSize(beforeRefresh + 1);
     assertThat(afterRefresh).extracting(Resource::getUrl).contains(loadBalancingRefreshFind.url());
 
     // Refreshing again must not duplicate the same find (resource_unique_url backstop).
-    enrichmentService.refreshResources(loadBalancingId);
+    assertThat(enrichmentService.refreshResources(loadBalancingId)).isZero();
     assertThat(resourceRepository.findByTopicId(loadBalancingId)).hasSize(beforeRefresh + 1);
+
+    // ---- 4b. the per-topic read returns what enrichment and refresh persisted ----
+    TopicDetailView detail = topicQueryService.getTopic(track.getId(), loadBalancingId);
+    assertThat(detail.enrichmentStatus()).isEqualTo(EnrichmentStatus.ready);
+    assertThat(detail.isRoot()).isFalse();
+    assertThat(detail.searchedAt()).isNotNull();
+    assertThat(detail.resources()).hasSize(beforeRefresh + 1);
+    assertThat(detail.resources()).extracting(ResourceDetailView::position).isSorted();
+    assertThat(detail.concepts())
+        .extracting(ConceptView::label)
+        .containsExactlyInAnyOrderElementsOf(
+            conceptsByTopic.get("Load Balancing").stream().map(ProposedConcept::label).toList());
+    assertThatThrownBy(() -> topicQueryService.getTopic(track.getId() + 999_999, loadBalancingId))
+        .isInstanceOf(NoSuchElementException.class);
+
+    // ---- 4c. "find more" on a ready topic appends; on a failed topic it re-runs enrichment ----
+    enrichmentJobRepository.deleteAll(
+        enrichmentJobRepository.findAll().stream()
+            .filter(j -> j.getTopicId().equals(loadBalancingId))
+            .toList());
+    expansionService.requestResourceRefresh(track.getId(), loadBalancingId);
+    assertThat(jobKindsFor(loadBalancingId)).containsExactly(EnrichmentJobKind.resource_refresh);
+
+    Long rateLimitingId =
+        expandResponse.children().stream()
+            .filter(c -> c.label().equals("Rate Limiting"))
+            .findFirst()
+            .orElseThrow()
+            .topicId();
+    new TransactionTemplate(transactionManager)
+        .executeWithoutResult(
+            status ->
+                topicRepository.updateEnrichmentStatus(rateLimitingId, EnrichmentStatus.failed));
+    enrichmentJobRepository.deleteAll(
+        enrichmentJobRepository.findAll().stream()
+            .filter(j -> j.getTopicId().equals(rateLimitingId))
+            .toList());
+    expansionService.requestResourceRefresh(track.getId(), rateLimitingId);
+    assertThat(jobKindsFor(rateLimitingId)).containsExactly(EnrichmentJobKind.initial);
+
+    // ...and that job brings the failed topic back to ready without redoing finished work.
+    int resourcesBefore = resourceRepository.findByTopicId(rateLimitingId).size();
+    enrichmentService.enrichTopic(rateLimitingId);
+    assertThat(topicRepository.findById(rateLimitingId).orElseThrow().getEnrichmentStatus())
+        .isEqualTo(EnrichmentStatus.ready);
+    assertThat(resourceRepository.findByTopicId(rateLimitingId)).hasSize(resourcesBefore);
 
     // ---- 5. read the full tree back through the real, unstubbed TrackService ----
     TrackView tree = trackService.getTrack(track.getId());
@@ -321,6 +377,13 @@ class NodePipelineIntegrationTest {
     assertThat(root.children()).hasSize(4);
 
     printTree(tree);
+  }
+
+  private List<EnrichmentJobKind> jobKindsFor(Long topicId) {
+    return enrichmentJobRepository.findAll().stream()
+        .filter(j -> j.getTopicId().equals(topicId))
+        .map(EnrichmentJob::getKind)
+        .toList();
   }
 
   private void printTree(TrackView tree) {
