@@ -25,6 +25,13 @@ All Maven commands run from `springboot/`. Tests are `@SpringBootTest` against a
 - Format (google-java-format): `./mvnw spotless:apply`. Check with `./mvnw spotless:check`.
 - Run: `./mvnw spring-boot:run`, which needs `GROQ_API_KEY` and `EXA_API_KEY` for real LLM/search calls (both default to `not-set`).
 - `ExaSearchToolsLiveTest` makes real, billed Exa calls and runs only when `EXA_API_KEY` is set to a real key. It is skipped otherwise.
+- Local Postgres is the Docker container `interview-assistant-pg` (`docker start interview-assistant-pg`).
+
+Frontend commands run from `frontend/` (React + Vite + TypeScript + Tailwind v4):
+
+- `npm install`, then `npm run dev`. The Vite dev server proxies `/tracks` (REST and SSE) to Spring on `:8080`, so start the backend first. Browser navigations under `/tracks/...` are SPA routes and bypass the proxy.
+- `npm run build` (typecheck + bundle), `npm run lint`.
+- The design system (tokens, type, layout rules) is in `frontend/DESIGN.md`; tokens live in `frontend/src/index.css`. Components use semantic token classes, never raw hex.
 
 ## Architecture
 
@@ -43,13 +50,18 @@ Everything writes to Postgres. The search agent is the only autonomous component
 1. `ExpansionService.expandTopic`: the LLM proposes children (`TopicExpander`), and each label is normalized (`LabelNormalizer`, deterministic, not an LLM) and matched against the track before insert (DAG edges via `topic_edge`). New topics get an `enrichment_job` row in the same transaction.
 2. `EnrichmentJobPoller` (`@Scheduled`, every 2s) claims job batches and dispatches them to `EnrichmentService` on the dedicated `enrichmentJobExecutor`. Job kinds: `initial` and `resource_refresh` ("find more", append-only).
 3. `EnrichmentService` runs two producers concurrently on `applicationTaskExecutor`: `ResourceFinder` (`AgenticResourceFinder`, a bounded tool-calling loop over Exa) and `ConceptGenerator`. Each persists in its own transaction. A topic reaches `ready` only when both finish. On retry, a producer whose rows already exist is skipped.
-4. Completion is pushed to clients over SSE (`GET /tracks/{trackId}/events`, `EnrichmentEventPublisher`).
+4. Completion of both job kinds is pushed to clients over SSE (`GET /tracks/{trackId}/events`, event name `enrichment`, payload `EnrichmentEvent{topicId, kind, status, newResourceCount}`). For `resource_refresh`, `status` is the refresh outcome, not the topic's `enrichment_status`.
+
+Read endpoints the UI depends on: `GET /tracks` (list), `GET /tracks/{id}` (tree: labels and statuses only), and `GET /tracks/{trackId}/topics/{topicId}` (`TopicQueryService`: resources, concepts, `searchedAt`). The tree deliberately has no resources; clients fetch a topic's detail when they show it.
 
 ### Patterns that aren't obvious from one file
 
 - **No LLM call while holding a DB connection.** The services avoid `@Transactional` and use explicit `TransactionTemplate` boundaries (`REQUIRED` / `REQUIRES_NEW`) around DB work only. Per-row inserts use `REQUIRES_NEW` so a unique-constraint hit (e.g. `resource_unique_url`, which is the dedupe guard) doesn't abort sibling inserts.
 - **Two retry layers:** `EnrichmentService` retries only on `RetryableEnrichmentException` (exponential backoff). The poller retries the whole job (fixed backoff, max attempts) for anything else. Throw `NonRetryableEnrichmentException` for failures that shouldn't be retried inside the service.
 - **Two `ChatModel` beans** (`llm/ChatModelConfig`): the `@Primary` `chatModel` uses strict JSON schema, which every `@AiService` returning a POJO/`List<POJO>` depends on. `toolCallingChatModel` omits it, because Groq rejects JSON-schema + tools in one request, and it is used only by the resource-finder agent. These beans are built by hand because the langchain4j OpenAI Spring starter is incompatible with Spring Boot 4.
+- **Groq rate limits are waited out, per request.** Both beans are wrapped in `RateLimitRetryingChatModel`: on a tokens-per-minute 429 it waits the time Groq names plus 4s and resends (max 4 retries; waits over 60s, i.e. daily limits, fail immediately). A "Request too large" error is not retried. The search agent's whole conversation is resent every round, so on the 8k-TPM tier its request size is the binding constraint: Exa returns 5 results per search, snippets are capped at 500 chars (`ExaSearchTools.MAX_SNIPPET_CHARS`), and URLs are validated after the loop rather than through a model tool. Adding tools, results, or snippet length can push single requests back over 8k.
+- **"Find more" on a `failed` topic queues an `initial` job, not a refresh.** `enrichTopic` resumes (skips producers whose rows exist) and is the only path to `ready`; a refresh never changes `enrichment_status`.
+- **Background job failures are only visible in the log.** `EnrichmentJobPoller` logs each failure with its exception; the `enrichment_job` row keeps no reason.
 - **Executors are explicit:** `EnrichmentQueueConfig` must define `applicationTaskExecutor` itself. Any custom `Executor` bean makes Boot stop auto-creating it. The two pools stay separate to avoid self-starvation (`enrichTopic` joins on sub-tasks).
 - **Testing `@AiService` collaborators:** they can't be replaced with `@MockitoBean` (the LangChain4j proxy `FactoryBean` breaks). Tests hand-construct the service under test with stub implementations instead (see `TrackServiceTest`, `NodePipelineIntegrationTest`). Tests that call `EnrichmentService` directly must set `@TestPropertySource(properties = "enrichment.polling.enabled=false")` so the poller doesn't race them. Don't add a `src/test/resources/application.properties`, because it would shadow the main one.
 
