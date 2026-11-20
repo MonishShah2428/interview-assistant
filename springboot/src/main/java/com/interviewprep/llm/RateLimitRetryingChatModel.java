@@ -13,16 +13,18 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Waits out Groq's tokens-per-minute limit instead of failing. When a request is rate-limited,
- * Groq's error says how long to wait ("Please try again in 6.42s"); this waits that long plus
- * {@link #SAFETY_MARGIN} and sends the same request again.
+ * Waits out Groq's tokens-per-minute limit instead of failing, and alternates across multiple
+ * configured keys in round-robin order. When a request is rate-limited on one key, this fails over
+ * immediately to the next key; only if all keys are rate-limited does it wait the shortest
+ * suggested duration plus {@link #SAFETY_MARGIN} before retrying.
  *
  * <p>Retrying here, per request, matters for the tool-calling agent: without it a rate limit late
  * in the loop fails the whole search, and the job queue's retry restarts it from round 1, which
@@ -46,31 +48,43 @@ public class RateLimitRetryingChatModel implements ChatModel {
   private static final Pattern RETRY_AFTER = Pattern.compile("try again in ([0-9hms.]+)");
   private static final Pattern DURATION_PART = Pattern.compile("(\\d+(?:\\.\\d+)?)(ms|h|m|s)");
 
-  private final ChatModel delegate;
+  private final List<ChatModel> delegates;
   private final Sleeper sleeper;
+  private final AtomicInteger nextIndex = new AtomicInteger();
 
   public RateLimitRetryingChatModel(ChatModel delegate) {
-    this(delegate, duration -> Thread.sleep(duration.toMillis()));
+    this(List.of(delegate));
+  }
+
+  public RateLimitRetryingChatModel(List<ChatModel> delegates) {
+    this(delegates, duration -> Thread.sleep(duration.toMillis()));
   }
 
   RateLimitRetryingChatModel(ChatModel delegate, Sleeper sleeper) {
-    this.delegate = delegate;
+    this(List.of(delegate), sleeper);
+  }
+
+  RateLimitRetryingChatModel(List<ChatModel> delegates, Sleeper sleeper) {
+    if (delegates == null || delegates.isEmpty()) {
+      throw new IllegalArgumentException("delegates must not be empty");
+    }
+    this.delegates = List.copyOf(delegates);
     this.sleeper = sleeper;
   }
 
   @Override
   public ChatResponse chat(ChatRequest request) {
-    return withRetry(() -> delegate.chat(request));
+    return withRetry(model -> model.chat(request));
   }
 
   @Override
   public ChatResponse chat(ChatRequest request, ChatRequestOptions options) {
-    return withRetry(() -> delegate.chat(request, options));
+    return withRetry(model -> model.chat(request, options));
   }
 
   @Override
   public ChatResponse doChat(ChatRequest request) {
-    return withRetry(() -> delegate.doChat(request));
+    return withRetry(model -> model.doChat(request));
   }
 
   // Everything below passes straight through. supportedCapabilities in particular must: strict
@@ -78,47 +92,68 @@ public class RateLimitRetryingChatModel implements ChatModel {
 
   @Override
   public ChatRequestParameters defaultRequestParameters() {
-    return delegate.defaultRequestParameters();
+    return delegates.getFirst().defaultRequestParameters();
   }
 
   @Override
   public List<ChatModelListener> listeners() {
-    return delegate.listeners();
+    return delegates.getFirst().listeners();
   }
 
   @Override
   public ModelProvider provider() {
-    return delegate.provider();
+    return delegates.getFirst().provider();
   }
 
   @Override
   public Set<Capability> supportedCapabilities() {
-    return delegate.supportedCapabilities();
+    return delegates.getFirst().supportedCapabilities();
   }
 
-  private ChatResponse withRetry(Supplier<ChatResponse> call) {
+  private ChatResponse withRetry(Function<ChatModel, ChatResponse> call) {
+    int startIdx = Math.floorMod(nextIndex.getAndIncrement(), delegates.size());
     for (int retry = 0; ; retry++) {
-      try {
-        return call.get();
-      } catch (RateLimitException e) {
-        Optional<Duration> asked = retryAfter(e.getMessage());
-        Duration base = asked.orElse(FALLBACK_WAIT);
-        if (retry == MAX_RETRIES || base.compareTo(MAX_WAIT) > 0) {
-          throw e;
-        }
-        Duration wait = base.plus(SAFETY_MARGIN);
-        log.info(
-            "Groq rate limit hit; waiting {} ms (asked {}) before retry {} of {}",
-            wait.toMillis(),
-            asked.map(d -> d.toMillis() + " ms").orElse("nothing"),
-            retry + 1,
-            MAX_RETRIES);
+      RateLimitException lastException = null;
+      Optional<Duration> minAsked = Optional.empty();
+
+      for (int k = 0; k < delegates.size(); k++) {
+        int keyIdx = (startIdx + k) % delegates.size();
         try {
-          sleeper.sleep(wait);
-        } catch (InterruptedException interrupted) {
-          Thread.currentThread().interrupt();
-          throw e;
+          return call.apply(delegates.get(keyIdx));
+        } catch (RateLimitException e) {
+          lastException = e;
+          Optional<Duration> asked = retryAfter(e.getMessage());
+          if (asked.isPresent()
+              && (minAsked.isEmpty() || asked.get().compareTo(minAsked.get()) < 0)) {
+            minAsked = asked;
+          }
+          if (k + 1 < delegates.size()) {
+            log.info(
+                "Groq rate limit hit on key {} of {}; switching to next key immediately",
+                keyIdx + 1,
+                delegates.size());
+          }
         }
+      }
+
+      Duration base = minAsked.orElse(FALLBACK_WAIT);
+      if (retry == MAX_RETRIES || base.compareTo(MAX_WAIT) > 0) {
+        throw lastException;
+      }
+      Duration wait = base.plus(SAFETY_MARGIN);
+      log.info(
+          "Groq rate limit hit across all {} key(s); waiting {} ms (asked {}) before retry {} of"
+              + " {}",
+          delegates.size(),
+          wait.toMillis(),
+          minAsked.map(d -> d.toMillis() + " ms").orElse("nothing"),
+          retry + 1,
+          MAX_RETRIES);
+      try {
+        sleeper.sleep(wait);
+      } catch (InterruptedException interrupted) {
+        Thread.currentThread().interrupt();
+        throw lastException;
       }
     }
   }

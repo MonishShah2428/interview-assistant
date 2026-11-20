@@ -94,6 +94,30 @@ class RateLimitRetryingChatModelTest {
         .containsExactly(Capability.RESPONSE_FORMAT_JSON_SCHEMA);
   }
 
+  @Test
+  void alternatesKeysAndFailsOverWithoutSleepingWhenOneKeyHasQuota() {
+    List<Duration> waits = new ArrayList<>();
+    FlakyModel key1 = new FlakyModel(0, "");
+    FlakyModel key2 = new FlakyModel(0, "");
+    ChatModel alternating = new RateLimitRetryingChatModel(List.of(key1, key2), waits::add);
+
+    assertThat(alternating.chat(REQUEST)).isSameAs(OK);
+    assertThat(alternating.chat(REQUEST)).isSameAs(OK);
+    assertThat(key1.calls).isEqualTo(1);
+    assertThat(key2.calls).isEqualTo(1);
+    assertThat(waits).isEmpty();
+
+    FlakyModel exhaustedKey = new FlakyModel(1, GROQ_TPM_ERROR);
+    FlakyModel healthyKey = new FlakyModel(0, "");
+    ChatModel failover =
+        new RateLimitRetryingChatModel(List.of(exhaustedKey, healthyKey), waits::add);
+
+    assertThat(failover.chat(REQUEST)).isSameAs(OK);
+    assertThat(exhaustedKey.calls).isEqualTo(1);
+    assertThat(healthyKey.calls).isEqualTo(1);
+    assertThat(waits).isEmpty();
+  }
+
   /** Fails with a rate limit {@code failures} times, then answers. */
   private static class FlakyModel implements ChatModel {
     private final int failures;

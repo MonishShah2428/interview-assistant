@@ -3,6 +3,8 @@ package com.interviewprep.llm;
 import dev.langchain4j.model.chat.Capability;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
+import java.util.Arrays;
+import java.util.List;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -29,8 +31,10 @@ import org.springframework.context.annotation.Primary;
  * for those. {@link #toolCallingChatModel} drops that capability for the one caller that needs
  * tools instead: {@code AgenticResourceFinder}.
  *
- * <p>Both are wrapped in {@link RateLimitRetryingChatModel}, so every Groq call in the app waits
- * out a tokens-per-minute rate limit (the time Groq asks for, plus a margin) instead of failing.
+ * <p>Both support comma-separated keys in {@code groq.api-key} and wrap them in {@link
+ * RateLimitRetryingChatModel} (with LangChain4j's built-in {@code maxRetries(0)} so a rate-limited
+ * key fails over immediately rather than retrying the same exhausted key), alternating across keys
+ * and waiting out a tokens-per-minute limit only when every key is exhausted.
  */
 @Configuration
 class ChatModelConfig {
@@ -41,14 +45,21 @@ class ChatModelConfig {
       @Value("${groq.base-url}") String baseUrl,
       @Value("${groq.api-key}") String apiKey,
       @Value("${groq.model-name}") String modelName) {
-    return new RateLimitRetryingChatModel(
-        OpenAiChatModel.builder()
-            .baseUrl(baseUrl)
-            .apiKey(apiKey)
-            .modelName(modelName)
-            .strictJsonSchema(true)
-            .supportedCapabilities(Capability.RESPONSE_FORMAT_JSON_SCHEMA)
-            .build());
+    List<ChatModel> delegates =
+        parseKeys(apiKey).stream()
+            .map(
+                key ->
+                    (ChatModel)
+                        OpenAiChatModel.builder()
+                            .baseUrl(baseUrl)
+                            .apiKey(key)
+                            .modelName(modelName)
+                            .maxRetries(0)
+                            .strictJsonSchema(true)
+                            .supportedCapabilities(Capability.RESPONSE_FORMAT_JSON_SCHEMA)
+                            .build())
+            .toList();
+    return new RateLimitRetryingChatModel(delegates);
   }
 
   @Bean
@@ -57,7 +68,24 @@ class ChatModelConfig {
       @Value("${groq.base-url}") String baseUrl,
       @Value("${groq.api-key}") String apiKey,
       @Value("${groq.model-name}") String modelName) {
-    return new RateLimitRetryingChatModel(
-        OpenAiChatModel.builder().baseUrl(baseUrl).apiKey(apiKey).modelName(modelName).build());
+    List<ChatModel> delegates =
+        parseKeys(apiKey).stream()
+            .map(
+                key ->
+                    (ChatModel)
+                        OpenAiChatModel.builder()
+                            .baseUrl(baseUrl)
+                            .apiKey(key)
+                            .modelName(modelName)
+                            .maxRetries(0)
+                            .build())
+            .toList();
+    return new RateLimitRetryingChatModel(delegates);
+  }
+
+  private static List<String> parseKeys(String rawKeys) {
+    List<String> keys =
+        Arrays.stream(rawKeys.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
+    return keys.isEmpty() ? List.of(rawKeys) : keys;
   }
 }
