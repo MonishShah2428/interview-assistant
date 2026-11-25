@@ -10,7 +10,6 @@ import com.interviewprep.node.entity.Topic;
 import com.interviewprep.node.entity.Track;
 import jakarta.persistence.EntityManager;
 import java.util.List;
-import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -59,9 +58,9 @@ class EnrichmentJobRepositoryTest {
 
   @Test
   void claimBatchClaimsOnlyRequestedCountAndLeavesTheRestPending() {
-    // claimBatch takes the oldest claimable jobs in the whole table, and this database is shared
-    // with real data. Push every existing job out of reach first so only this test's two compete;
-    // the test transaction rolls this back.
+    // claimBatch looks across the whole table, and this database is shared with real data. Push
+    // every existing job out of reach first so only this test's two compete; the test transaction
+    // rolls this back.
     entityManager
         .createNativeQuery(
             "UPDATE enrichment_job SET run_after = clock_timestamp() + interval '1 day'")
@@ -79,9 +78,14 @@ class EnrichmentJobRepositoryTest {
     // moment ago can still look scheduled for the future. Restate both on the database clock.
     entityManager
         .createNativeQuery(
-            "UPDATE enrichment_job SET run_after = clock_timestamp() - interval '1 second'"
-                + " WHERE id IN (:a, :b)")
+            "UPDATE enrichment_job SET created_at = clock_timestamp() - interval '10 seconds',"
+                + " run_after = clock_timestamp() - interval '1 second' WHERE id = :a")
         .setParameter("a", jobA.getId())
+        .executeUpdate();
+    entityManager
+        .createNativeQuery(
+            "UPDATE enrichment_job SET created_at = clock_timestamp() - interval '5 seconds',"
+                + " run_after = clock_timestamp() - interval '1 second' WHERE id = :b")
         .setParameter("b", jobB.getId())
         .executeUpdate();
 
@@ -92,14 +96,118 @@ class EnrichmentJobRepositoryTest {
     entityManager.clear();
 
     assertThat(claimed).hasSize(1);
-    Long claimedId = claimed.get(0).getId();
-    assertThat(Set.of(jobA.getId(), jobB.getId())).contains(claimedId);
+    assertThat(claimed.get(0).getId()).isEqualTo(jobB.getId());
 
-    EnrichmentJob claimedRow = enrichmentJobRepository.findById(claimedId).orElseThrow();
-    assertThat(claimedRow.getStatus()).isEqualTo(EnrichmentJobStatus.processing);
+    assertThat(enrichmentJobRepository.findById(jobB.getId()).orElseThrow().getStatus())
+        .isEqualTo(EnrichmentJobStatus.processing);
+    assertThat(enrichmentJobRepository.findById(jobA.getId()).orElseThrow().getStatus())
+        .isEqualTo(EnrichmentJobStatus.pending);
+  }
 
-    Long untouchedId = claimedId.equals(jobA.getId()) ? jobB.getId() : jobA.getId();
-    EnrichmentJob untouchedRow = enrichmentJobRepository.findById(untouchedId).orElseThrow();
-    assertThat(untouchedRow.getStatus()).isEqualTo(EnrichmentJobStatus.pending);
+  @Test
+  void claimBatchClaimsMostRecentlyRequestedFirstAndLeavesProcessingJobUntouched() {
+    entityManager
+        .createNativeQuery(
+            "UPDATE enrichment_job SET run_after = clock_timestamp() + interval '1 day'")
+        .executeUpdate();
+
+    Track track = trackRepository.saveAndFlush(new Track(1L, "goal", "mid", null));
+    Topic topicA =
+        topicRepository.saveAndFlush(new Topic(track, "Topic A", "topic a", true, false));
+    Topic topicB =
+        topicRepository.saveAndFlush(new Topic(track, "Topic B", "topic b", true, false));
+    Topic topicC =
+        topicRepository.saveAndFlush(new Topic(track, "Topic C", "topic c", true, false));
+
+    EnrichmentJob jobA = enrichmentJobRepository.saveAndFlush(new EnrichmentJob(topicA.getId()));
+    EnrichmentJob jobB = enrichmentJobRepository.saveAndFlush(new EnrichmentJob(topicB.getId()));
+    EnrichmentJob jobC = enrichmentJobRepository.saveAndFlush(new EnrichmentJob(topicC.getId()));
+
+    entityManager
+        .createNativeQuery(
+            "UPDATE enrichment_job SET status = 'processing',"
+                + " created_at = clock_timestamp() - interval '30 seconds',"
+                + " run_after = clock_timestamp() - interval '30 seconds' WHERE id = :a")
+        .setParameter("a", jobA.getId())
+        .executeUpdate();
+    entityManager
+        .createNativeQuery(
+            "UPDATE enrichment_job SET created_at = clock_timestamp() - interval '20 seconds',"
+                + " run_after = clock_timestamp() - interval '1 second' WHERE id = :b")
+        .setParameter("b", jobB.getId())
+        .executeUpdate();
+    entityManager
+        .createNativeQuery(
+            "UPDATE enrichment_job SET created_at = clock_timestamp() - interval '10 seconds',"
+                + " run_after = clock_timestamp() - interval '1 second' WHERE id = :c")
+        .setParameter("c", jobC.getId())
+        .executeUpdate();
+
+    List<EnrichmentJobRepository.ClaimedJob> first = enrichmentJobRepository.claimBatch(1, 5);
+    entityManager.clear();
+
+    assertThat(first)
+        .extracting(EnrichmentJobRepository.ClaimedJob::getId)
+        .containsExactly(jobC.getId());
+    assertThat(enrichmentJobRepository.findById(jobA.getId()).orElseThrow().getStatus())
+        .isEqualTo(EnrichmentJobStatus.processing);
+    assertThat(enrichmentJobRepository.findById(jobC.getId()).orElseThrow().getStatus())
+        .isEqualTo(EnrichmentJobStatus.processing);
+    assertThat(enrichmentJobRepository.findById(jobB.getId()).orElseThrow().getStatus())
+        .isEqualTo(EnrichmentJobStatus.pending);
+
+    List<EnrichmentJobRepository.ClaimedJob> second = enrichmentJobRepository.claimBatch(1, 5);
+    entityManager.clear();
+
+    assertThat(second)
+        .extracting(EnrichmentJobRepository.ClaimedJob::getId)
+        .containsExactly(jobB.getId());
+    assertThat(enrichmentJobRepository.findById(jobB.getId()).orElseThrow().getStatus())
+        .isEqualTo(EnrichmentJobStatus.processing);
+  }
+
+  @Test
+  void newerRequestIsClaimedAheadOfOlderDueRetry() {
+    entityManager
+        .createNativeQuery(
+            "UPDATE enrichment_job SET run_after = clock_timestamp() + interval '1 day'")
+        .executeUpdate();
+
+    Track track = trackRepository.saveAndFlush(new Track(1L, "goal", "mid", null));
+    Topic oldTopic =
+        topicRepository.saveAndFlush(new Topic(track, "Old Topic", "old topic", true, false));
+    Topic freshTopic =
+        topicRepository.saveAndFlush(new Topic(track, "Fresh Topic", "fresh topic", true, false));
+
+    EnrichmentJob oldRetry =
+        enrichmentJobRepository.saveAndFlush(new EnrichmentJob(oldTopic.getId()));
+    EnrichmentJob freshJob =
+        enrichmentJobRepository.saveAndFlush(new EnrichmentJob(freshTopic.getId()));
+
+    entityManager
+        .createNativeQuery(
+            "UPDATE enrichment_job SET status = 'failed', attempts = 1,"
+                + " created_at = clock_timestamp() - interval '2 minutes',"
+                + " run_after = clock_timestamp() - interval '1 second' WHERE id = :oldId")
+        .setParameter("oldId", oldRetry.getId())
+        .executeUpdate();
+    entityManager
+        .createNativeQuery(
+            "UPDATE enrichment_job SET status = 'pending', attempts = 0,"
+                + " created_at = clock_timestamp() - interval '30 seconds',"
+                + " run_after = clock_timestamp() - interval '30 seconds' WHERE id = :freshId")
+        .setParameter("freshId", freshJob.getId())
+        .executeUpdate();
+
+    List<EnrichmentJobRepository.ClaimedJob> claimed = enrichmentJobRepository.claimBatch(1, 5);
+    entityManager.clear();
+
+    assertThat(claimed)
+        .extracting(EnrichmentJobRepository.ClaimedJob::getId)
+        .containsExactly(freshJob.getId());
+    assertThat(enrichmentJobRepository.findById(freshJob.getId()).orElseThrow().getStatus())
+        .isEqualTo(EnrichmentJobStatus.processing);
+    assertThat(enrichmentJobRepository.findById(oldRetry.getId()).orElseThrow().getStatus())
+        .isEqualTo(EnrichmentJobStatus.failed);
   }
 }

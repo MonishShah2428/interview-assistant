@@ -19,17 +19,20 @@ public interface EnrichmentJobRepository extends JpaRepository<EnrichmentJob, Lo
   }
 
   /**
-   * Atomic claim-and-read in one round trip: pick rows with {@code FOR UPDATE SKIP LOCKED} in a
-   * {@code MATERIALIZED} CTE, then {@code UPDATE ... FROM picked RETURNING ...}. Not {@code WHERE
-   * id IN (SELECT ... LIMIT n FOR UPDATE SKIP LOCKED)}: Postgres may evaluate that subquery more
-   * than once, claiming more than {@code n} rows or none. Not {@code @Modifying} — that forces
-   * Hibernate's {@code executeUpdate()} path, which expects an int, but this statement returns rows
-   * via {@code RETURNING}, so it needs the normal result-list path a {@code SELECT} would use.
+   * Atomic claim-and-read in one round trip: pick due rows in LIFO stack order ({@code created_at
+   * DESC, id DESC}) with {@code FOR UPDATE SKIP LOCKED} in a {@code MATERIALIZED} CTE, then {@code
+   * UPDATE ... FROM picked RETURNING ...}. Not {@code WHERE id IN (SELECT ... LIMIT n FOR UPDATE
+   * SKIP LOCKED)}: Postgres may evaluate that subquery more than once, claiming more than {@code n}
+   * rows or none. Not {@code @Modifying} — that forces Hibernate's {@code executeUpdate()} path,
+   * which expects an int, but this statement returns rows via {@code RETURNING}, so it needs the
+   * normal result-list path a {@code SELECT} would use.
    *
-   * <p>Uses {@code clock_timestamp()}, not {@code now()} — Postgres freezes {@code now()} at
-   * transaction start, so a long-lived transaction would compare {@code run_after} against a stale
-   * timestamp. {@code clock_timestamp()} re-evaluates on every call, which is what a polling claim
-   * actually needs.
+   * <p>{@code run_after <= clock_timestamp()} acts purely as the retry-backoff eligibility filter
+   * rather than the sort order, so an older failed retry coming due never jumps ahead of a more
+   * recently requested topic, and {@code id DESC} breaks ties deterministically. Uses {@code
+   * clock_timestamp()}, not {@code now()} — Postgres freezes {@code now()} at transaction start, so
+   * a long-lived transaction would compare {@code run_after} against a stale timestamp. {@code
+   * clock_timestamp()} re-evaluates on every call, which is what a polling claim actually needs.
    */
   @Query(
       value =
@@ -39,7 +42,7 @@ public interface EnrichmentJobRepository extends JpaRepository<EnrichmentJob, Lo
             WHERE status IN ('pending', 'failed')
               AND attempts < :maxAttempts
               AND run_after <= clock_timestamp()
-            ORDER BY run_after
+            ORDER BY created_at DESC, id DESC
             LIMIT :batchSize
             FOR UPDATE SKIP LOCKED
           )

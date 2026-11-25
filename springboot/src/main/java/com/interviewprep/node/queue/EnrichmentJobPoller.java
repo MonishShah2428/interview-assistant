@@ -25,7 +25,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * Polls {@code enrichment_job} and dispatches claimed rows to {@link EnrichmentService}. Claiming
  * happens in a short transaction, same shape as every other claim in this codebase; each claimed
  * job is dispatched onto {@link #executor}, not run inline, so a slow enrichment never delays the
- * next poll tick from claiming other work.
+ * next poll tick from claiming other work. Due jobs are claimed LIFO (stack order: most recently
+ * requested first) so fresh user requests run ahead of older backlogged ones without ever
+ * interrupting an enrichment already in flight.
  *
  * <p>This job-level retry (bounded, fixed backoff) is coarser than {@code EnrichmentService}'s own
  * internal retry (bounded, exponential backoff, only on {@code RetryableEnrichmentException}) — it

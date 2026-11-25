@@ -51,7 +51,7 @@ Everything writes to Postgres. The search agent is the only autonomous component
 ### Node pipeline flow
 
 1. `ExpansionService.expandTopic`: the LLM proposes children (`TopicExpander`), and each label is normalized (`LabelNormalizer`, deterministic, not an LLM) and matched against the track before insert (DAG edges via `topic_edge`). New topics get an `enrichment_job` row in the same transaction.
-2. `EnrichmentJobPoller` (`@Scheduled`, every 2s) claims job batches and dispatches them to `EnrichmentService` on the dedicated `enrichmentJobExecutor`. Job kinds: `initial` and `resource_refresh` ("find more", append-only).
+2. `EnrichmentJobPoller` (`@Scheduled`, every 2s) claims due jobs LIFO (`ORDER BY created_at DESC, id DESC`, so the most recently requested topic runs next without interrupting any in-flight job) and dispatches them to `EnrichmentService` on the dedicated `enrichmentJobExecutor`. Job kinds: `initial` and `resource_refresh` ("find more", append-only).
 3. `EnrichmentService` runs two producers concurrently on `applicationTaskExecutor`: `ResourceFinder` (`AgenticResourceFinder`, a bounded tool-calling loop over Exa) and `ConceptGenerator`. Each persists in its own transaction. A topic reaches `ready` only when both finish. On retry, a producer whose rows already exist is skipped.
 4. Completion of both job kinds is pushed to clients over SSE (`GET /tracks/{trackId}/events`, event name `enrichment`, payload `EnrichmentEvent{topicId, kind, status, newResourceCount}`). For `resource_refresh`, `status` is the refresh outcome, not the topic's `enrichment_status`.
 
