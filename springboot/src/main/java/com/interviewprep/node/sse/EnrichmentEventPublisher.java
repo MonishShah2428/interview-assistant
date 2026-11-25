@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -49,8 +50,22 @@ public class EnrichmentEventPublisher {
     for (SseEmitter emitter : emitters) {
       try {
         emitter.send(SseEmitter.event().name("enrichment").data(event));
-      } catch (IOException e) {
+      } catch (IOException | IllegalStateException e) {
         emitters.remove(emitter);
+      }
+    }
+  }
+
+  /** Keeps idle SSE streams alive through reverse proxies and load balancers. */
+  @Scheduled(fixedRate = 25_000)
+  void sendHeartbeats() {
+    for (List<SseEmitter> emitters : emittersByTrack.values()) {
+      for (SseEmitter emitter : emitters) {
+        try {
+          emitter.send(SseEmitter.event().comment("ping"));
+        } catch (IOException | IllegalStateException e) {
+          emitters.remove(emitter);
+        }
       }
     }
   }
