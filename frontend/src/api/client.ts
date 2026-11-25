@@ -9,15 +9,17 @@ export class ApiError extends Error {
   }
 }
 
+const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(path, {
+    res = await fetch(`${API_BASE}${path}`, {
       ...init,
       headers: { Accept: "application/json", ...(init?.body ? { "Content-Type": "application/json" } : {}) },
     });
   } catch {
-    throw new ApiError(0, "Can't reach the server. Check that the backend is running on port 8080.");
+    throw new ApiError(0, "Can't reach the server. Check your connection and try again.");
   }
   if (!res.ok) {
     throw new ApiError(res.status, `Request failed with status ${res.status}`);
@@ -39,5 +41,5 @@ export const api = {
     request<ExpandTopicResponse>(`/tracks/${trackId}/topics/${topicId}/expand`, { method: "POST" }),
   refreshResources: (trackId: number, topicId: number) =>
     request<void>(`/tracks/${trackId}/topics/${topicId}/resources/refresh`, { method: "POST" }),
-  eventsUrl: (trackId: number) => `/tracks/${trackId}/events`,
+  eventsUrl: (trackId: number) => `${API_BASE}/tracks/${trackId}/events`,
 };
