@@ -34,7 +34,9 @@ import org.springframework.context.annotation.Primary;
  * <p>Both support comma-separated keys in {@code groq.api-key} and wrap them in {@link
  * RateLimitRetryingChatModel} (with LangChain4j's built-in {@code maxRetries(0)} so a rate-limited
  * key fails over immediately rather than retrying the same exhausted key), alternating across keys
- * and waiting out a tokens-per-minute limit only when every key is exhausted.
+ * and waiting out a tokens-per-minute limit only when every key is exhausted. Both default {@code
+ * reasoning_effort} to {@code low} (overridable via properties) to avoid burning excess reasoning
+ * tokens on every round trip, and attach {@link TokenUsageLoggingListener} to log per-call usage.
  */
 @Configuration
 class ChatModelConfig {
@@ -44,21 +46,19 @@ class ChatModelConfig {
   ChatModel chatModel(
       @Value("${groq.base-url}") String baseUrl,
       @Value("${groq.api-key}") String apiKey,
-      @Value("${groq.model-name}") String modelName) {
+      @Value("${groq.model-name}") String modelName,
+      @Value("${groq.reasoning-effort:low}") String reasoningEffort,
+      @Value("${groq.max-completion-tokens:2048}") int maxCompletionTokens) {
     List<ChatModel> delegates =
-        parseKeys(apiKey).stream()
-            .map(
-                key ->
-                    (ChatModel)
-                        OpenAiChatModel.builder()
-                            .baseUrl(baseUrl)
-                            .apiKey(key)
-                            .modelName(modelName)
-                            .maxRetries(0)
-                            .strictJsonSchema(true)
-                            .supportedCapabilities(Capability.RESPONSE_FORMAT_JSON_SCHEMA)
-                            .build())
-            .toList();
+        buildDelegates(
+            baseUrl,
+            apiKey,
+            modelName,
+            reasoningEffort,
+            maxCompletionTokens,
+            "structured",
+            true,
+            false);
     return new RateLimitRetryingChatModel(delegates);
   }
 
@@ -67,20 +67,60 @@ class ChatModelConfig {
   ChatModel toolCallingChatModel(
       @Value("${groq.base-url}") String baseUrl,
       @Value("${groq.api-key}") String apiKey,
-      @Value("${groq.model-name}") String modelName) {
+      @Value("${groq.tool-calling.model-name:${groq.model-name}}") String modelName,
+      @Value("${groq.tool-calling.reasoning-effort:${groq.reasoning-effort:low}}")
+          String reasoningEffort,
+      @Value("${groq.max-completion-tokens:2048}") int maxCompletionTokens) {
     List<ChatModel> delegates =
-        parseKeys(apiKey).stream()
-            .map(
-                key ->
-                    (ChatModel)
-                        OpenAiChatModel.builder()
-                            .baseUrl(baseUrl)
-                            .apiKey(key)
-                            .modelName(modelName)
-                            .maxRetries(0)
-                            .build())
-            .toList();
+        buildDelegates(
+            baseUrl,
+            apiKey,
+            modelName,
+            reasoningEffort,
+            maxCompletionTokens,
+            "tool-calling",
+            false,
+            true);
     return new RateLimitRetryingChatModel(delegates);
+  }
+
+  private static List<ChatModel> buildDelegates(
+      String baseUrl,
+      String apiKey,
+      String modelName,
+      String reasoningEffort,
+      int maxCompletionTokens,
+      String listenerRole,
+      boolean structuredJsonSchema,
+      boolean parallelToolCalls) {
+    TokenUsageLoggingListener listener = new TokenUsageLoggingListener(listenerRole);
+    return parseKeys(apiKey).stream()
+        .map(
+            key -> {
+              OpenAiChatModel.OpenAiChatModelBuilder builder =
+                  OpenAiChatModel.builder()
+                      .baseUrl(baseUrl)
+                      .apiKey(key)
+                      .modelName(modelName)
+                      .maxRetries(0)
+                      .listeners(listener);
+              if (reasoningEffort != null && !reasoningEffort.isBlank()) {
+                builder.reasoningEffort(reasoningEffort.strip());
+              }
+              if (maxCompletionTokens > 0) {
+                builder.maxCompletionTokens(maxCompletionTokens);
+              }
+              if (structuredJsonSchema) {
+                builder
+                    .strictJsonSchema(true)
+                    .supportedCapabilities(Capability.RESPONSE_FORMAT_JSON_SCHEMA);
+              }
+              if (parallelToolCalls) {
+                builder.parallelToolCalls(true);
+              }
+              return (ChatModel) builder.build();
+            })
+        .toList();
   }
 
   private static List<String> parseKeys(String rawKeys) {

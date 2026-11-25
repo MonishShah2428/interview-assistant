@@ -56,7 +56,7 @@ public class EnrichmentService {
   private static final List<EnrichmentStatus> CLAIMABLE_STATUSES =
       List.of(EnrichmentStatus.pending, EnrichmentStatus.failed);
 
-  private static final int MAX_ATTEMPTS = 3;
+  private static final int MAX_ATTEMPTS = 2;
   private static final long INITIAL_BACKOFF_MS = 1500;
 
   private final TopicRepository topicRepository;
@@ -285,7 +285,7 @@ public class EnrichmentService {
   }
 
   private void sleepBackoff(int attempt) {
-    long backoffMs = INITIAL_BACKOFF_MS * (1L << (attempt - 1)); // 500, 1000, 2000, ...
+    long backoffMs = INITIAL_BACKOFF_MS * (1L << (attempt - 1)); // 1500, 3000, ...
     try {
       Thread.sleep(backoffMs);
     } catch (InterruptedException interrupted) {

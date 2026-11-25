@@ -28,4 +28,20 @@ class ExaSnippetTruncationTest {
 
     assertThat(cut).hasSize(500).endsWith("…");
   }
+
+  @Test
+  void cleanSnippetStripsMarkdownNoiseAndUrls() {
+    String raw =
+        "  ![banner](https://cdn.example.com/a.png)\n\n"
+            + "Read [Redis docs](https://redis.io/docs/latest) or visit\t"
+            + "https://example.com/extra?foo=1&bar=2   for   details.  ";
+
+    assertThat(ExaSearchTools.cleanSnippet(raw)).isEqualTo("Read Redis docs or visit for details.");
+  }
+
+  @Test
+  void cleanSnippetHandlesNullAndBlankInputs() {
+    assertThat(ExaSearchTools.cleanSnippet(null)).isEmpty();
+    assertThat(ExaSearchTools.cleanSnippet("   \n\t  ")).isEmpty();
+  }
 }

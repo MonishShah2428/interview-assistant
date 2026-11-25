@@ -11,6 +11,7 @@ import com.interviewprep.node.service.llm.enrichment.SearchTools;
 import com.interviewprep.node.service.llm.enrichment.SearchType;
 import java.net.URI;
 import java.util.List;
+import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -40,13 +41,19 @@ class ExaSearchTools implements SearchTools {
   private static final String EXA_SEARCH_URL = "https://api.exa.ai/search";
   private static final String EXA_HOST = "api.exa.ai";
   private static final int MAX_RESULTS = 5;
+  private static final int EXA_HIGHLIGHTS_MAX_CHARS = 400;
 
   /**
    * Snippets are resent to the model on every later tool-calling round, so their size adds up
-   * across a search. 500 characters (about 2-3 sentences) is enough to tell a tutorial from a paper
-   * or a listicle, which is all the model uses them for; titles and URLs are never cut.
+   * across a search. 250 cleaned characters is enough to tell a tutorial from a paper or a
+   * listicle, which is all the model uses them for; titles and URLs are never cut.
    */
-  static final int MAX_SNIPPET_CHARS = 500;
+  static final int MAX_SNIPPET_CHARS = 250;
+
+  private static final Pattern MARKDOWN_IMAGE = Pattern.compile("!\\[[^\\]]*\\]\\([^)]*\\)");
+  private static final Pattern MARKDOWN_LINK = Pattern.compile("\\[([^\\]]+)\\]\\([^)]*\\)");
+  private static final Pattern BARE_URL = Pattern.compile("https?://\\S+");
+  private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
   private final RestClient restClient;
   private final String apiKey;
@@ -77,7 +84,11 @@ class ExaSearchTools implements SearchTools {
               .contentType(MediaType.APPLICATION_JSON)
               .body(
                   new ExaRequest(
-                      query, type.exaValue(), MAX_RESULTS, includeDomains, new ExaContents(true)))
+                      query,
+                      type.exaValue(),
+                      MAX_RESULTS,
+                      includeDomains,
+                      new ExaContents(new ExaHighlights(EXA_HIGHLIGHTS_MAX_CHARS))))
               .retrieve()
               .body(ExaResponse.class);
     } catch (HttpClientErrorException.TooManyRequests e) {
@@ -98,12 +109,16 @@ class ExaSearchTools implements SearchTools {
                     r.url(),
                     r.highlights() == null
                         ? ""
-                        : truncate(String.join(" ", r.highlights()), MAX_SNIPPET_CHARS)))
+                        : truncate(
+                            cleanSnippet(String.join(" ", r.highlights())), MAX_SNIPPET_CHARS)))
         .toList();
   }
 
   @Override
   public boolean validateUrl(String url) {
+    if (url == null || url.isBlank()) {
+      return false;
+    }
     String host = extractHost(url);
     if (host == null) {
       return false;
@@ -138,6 +153,17 @@ class ExaSearchTools implements SearchTools {
         .toList();
   }
 
+  /** Strips markdown images, link URLs, bare inline URLs, and redundant whitespace. */
+  static String cleanSnippet(String text) {
+    if (text == null || text.isBlank()) {
+      return "";
+    }
+    String cleaned = MARKDOWN_IMAGE.matcher(text).replaceAll("");
+    cleaned = MARKDOWN_LINK.matcher(cleaned).replaceAll("$1");
+    cleaned = BARE_URL.matcher(cleaned).replaceAll("");
+    return WHITESPACE.matcher(cleaned).replaceAll(" ").strip();
+  }
+
   /** Cuts at the last word boundary before {@code max} and marks the cut with an ellipsis. */
   static String truncate(String text, int max) {
     String trimmed = text.strip();
@@ -167,7 +193,9 @@ class ExaSearchTools implements SearchTools {
       List<String> includeDomains,
       ExaContents contents) {}
 
-  private record ExaContents(boolean highlights) {}
+  private record ExaContents(ExaHighlights highlights) {}
+
+  private record ExaHighlights(int maxCharacters) {}
 
   private record ExaResponse(List<ExaResult> results) {}
 

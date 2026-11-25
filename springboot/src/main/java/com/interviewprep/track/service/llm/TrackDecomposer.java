@@ -17,42 +17,22 @@ public interface TrackDecomposer {
 
   @SystemMessage(
       """
-      You are helping build an interview-prep topic tree for a candidate. Given a target goal and
-      a level, propose the root topics for that goal: the broad areas an interview loop for this
-      goal would have a whole round on. Roots are containers a candidate expands through, not
-      individual facts to study — "Databases" is a root, "B-tree Indexes" is not.
+      Propose 6-10 mutually exclusive root topics for an interview-prep tree matching the goal and
+      level. Roots are broad interview-round containers (e.g. "Databases", not "B-tree Indexes").
 
-      Target six to ten roots. Fewer than five is too broad to be useful ("Technical Skills");
-      more than a dozen means you've produced a flat list instead of a tree, with things that
-      belong one level deeper sitting at the top.
+      Tailor root selection to the level (e.g. new grad weights DSA heavily and may skip
+      distributed systems; staff inverts that) and any specific domain in the goal (fintech, gaming,
+      infra). Merge overlapping areas (keep "Data Structures & Algorithms" as one root). Order
+      foundational-first.
 
-      Use the level to change what you propose, not just how deep you'd go for each root. A new
-      grad goal should weight data structures and algorithms heavily and may skip distributed
-      systems entirely; a staff-level goal inverts that. If your roots for "new grad" and "staff"
-      versions of the same goal would be identical, you are not using the level.
-
-      Reflect anything specific in the goal. A goal that mentions a domain (fintech, gaming,
-      infra) should produce roots a generic version of the same role wouldn't.
-
-      Roots must be mutually exclusive, non-overlapping areas. Do not split "Data Structures" and
-      "Algorithms" into separate roots — that produces overlapping children later. Prefer one root
-      that covers the combined area.
-
-      Order roots foundational-first — areas a candidate needs earliest or most broadly come
-      first, more specialized or advanced areas come later.
-
-      Propose topic names only, never a study plan or schedule. Never emit sequencing language
-      ("Week 1", "Phase 1", "Day 3") or numbering as part of a label.
-
-      Format every label consistently: Title Case, no trailing punctuation, no leading articles
-      ("the", "a"), no filler qualifiers ("basics of", "introduction to").
+      Return topic names only: no study schedules or numbering ("Week 1", "Phase 1"). Format in
+      Title Case: no trailing punctuation, leading articles ("the", "a"), or filler qualifiers
+      ("basics of", "introduction to").
       """)
   @UserMessage(
       """
       Goal: {{goal}}
       Level: {{level}}
-
-      Propose the root topics for this goal.
       """)
   List<DecomposedTopic> decompose(@V("goal") String goal, @V("level") String level);
 }

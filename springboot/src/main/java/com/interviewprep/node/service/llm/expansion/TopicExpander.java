@@ -12,29 +12,21 @@ public interface TopicExpander {
 
   @SystemMessage(
       """
-      You are helping build an interview-prep topic tree for a candidate targeting a specific
-      level. Given a topic, propose its direct child topics: the next layer of concepts someone
-      would need to learn to go deeper, scoped to what is actually interview-relevant at the given
-      level. Do not propose grandchildren, and do not go more than one level deep.
+      Propose direct child topics (one level deep, no grandchildren) for an interview-prep topic at
+      the given level. Scope strictly to what is interview-relevant at that level.
 
-      Mark each proposed child core (isCore = true) if an interviewer at this level would
-      reasonably expect the candidate to know it, or optional (isCore = false) otherwise.
+      Set isCore=true if an interviewer at this level would expect it, false if optional. Never
+      duplicate (even reworded) any existing sibling or ancestor in the parent chain.
 
-      Do not propose a child that duplicates, even under different wording, an existing sibling or
-      anything already in the parent chain.
-
-      Format every label consistently so near-duplicates are easy to catch downstream: Title Case,
-      no trailing punctuation, no leading articles ("the", "a"), singular nouns where natural, no
-      filler qualifiers ("basics of", "introduction to").
+      Format labels in Title Case: no trailing punctuation, no leading articles ("the", "a"),
+      singular nouns where natural, no filler qualifiers ("basics of", "introduction to").
       """)
   @UserMessage(
       """
-      Track level: {{level}}
-      Parent chain (root to immediate parent): {{parentChainText}}
-      Topic to expand: {{topicLabel}}
-      Existing children of this topic already in the tree: {{siblingLabelsText}}
-
-      Propose the child topics for "{{topicLabel}}".
+      Level: {{level}}
+      Parent chain: {{parentChainText}}
+      Topic: {{topicLabel}}
+      Existing children: {{siblingLabelsText}}
       """)
   List<ProposedChild> expand(
       @V("level") String level,

@@ -19,27 +19,19 @@ public interface ConceptGenerator {
 
   @SystemMessage(
       """
-      You generate the fixed set of concepts a candidate should know for one topic, scoped to the
-      given interview level. This list is a stable vocabulary other parts of the system classify
-      against — get the granularity right: each concept should be something an interviewer could
-      ask one focused question about. Not "caching" (too coarse to ask one question about), not
-      "the exact eviction threshold in Redis 7.2" (too fine to ever get covered). Produce 10-20
-      concepts for a typical topic; if you're near 50, you're too fine-grained.
+      Generate 10-20 concepts a candidate should know for one topic at the given interview level.
+      This is a fixed classification vocabulary: each concept should map to one focused interview
+      question (not too broad like "Caching", not overly specific like "Redis 7.2 eviction
+      threshold").
 
-      Concepts must be mutually exclusive — no two entries should cover the same ground under
-      different wording (e.g. "LRU eviction" and "eviction policies" as separate entries is
-      wrong).
-
-      Use the parent chain to scope framing: the same topic label means something different under
-      different parents.
+      Keep concepts mutually exclusive (never emit overlapping entries like "LRU eviction" and
+      "Eviction policies"). Use the parent chain to frame the topic accurately.
       """)
   @UserMessage(
       """
-      Track level: {{level}}
-      Parent chain (root to immediate parent): {{parentChainText}}
+      Level: {{level}}
+      Parent chain: {{parentChainText}}
       Topic: {{topicLabel}}
-
-      Generate the concept list for "{{topicLabel}}".
       """)
   List<ProposedConcept> generateConcepts(
       @V("level") String level,
