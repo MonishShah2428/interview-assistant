@@ -3,18 +3,24 @@ package com.interviewprep.node.queue;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.interviewprep.node.entity.EnrichmentJob;
 import com.interviewprep.node.entity.EnrichmentJobKind;
 import com.interviewprep.node.repository.EnrichmentJobRepository;
 import com.interviewprep.node.repository.EnrichmentJobRepository.ClaimedJob;
 import com.interviewprep.node.service.EnrichmentService;
+import com.interviewprep.node.sse.EnrichmentEventPublisher;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -94,8 +100,16 @@ class EnrichmentJobPollerTest {
                 });
 
     try {
+      EnrichmentEventPublisher eventPublisher = mock(EnrichmentEventPublisher.class);
       EnrichmentJobPoller poller =
-          new EnrichmentJobPoller(jobRepository, enrichmentService, trackingExecutor, txManager, 1);
+          new EnrichmentJobPoller(
+              jobRepository,
+              enrichmentService,
+              trackingExecutor,
+              txManager,
+              eventPublisher,
+              1,
+              false);
 
       // Push job A and start it.
       synchronized (lifoStack) {
@@ -137,6 +151,50 @@ class EnrichmentJobPollerTest {
       assertThat(executionOrder).containsExactly(101L, 103L, 102L);
     } finally {
       delegateExecutor.shutdown();
+    }
+  }
+
+  @Test
+  void requiresActiveSubscriberSkipsDbWhenEmptyAndScopesClaimsToActiveTracks() throws Exception {
+    EnrichmentJobRepository jobRepository = mock(EnrichmentJobRepository.class);
+    when(jobRepository.claimBatchForTracks(anyInt(), anyInt(), eq(Set.of(42L))))
+        .thenReturn(List.of(job(9L, 202L)));
+
+    CountDownLatch ran = new CountDownLatch(1);
+    EnrichmentService enrichmentService = mock(EnrichmentService.class);
+    doAnswer(
+            inv -> {
+              ran.countDown();
+              return null;
+            })
+        .when(enrichmentService)
+        .enrichTopic(202L);
+
+    PlatformTransactionManager txManager = mock(PlatformTransactionManager.class);
+    when(txManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
+
+    EnrichmentEventPublisher eventPublisher = mock(EnrichmentEventPublisher.class);
+    when(eventPublisher.activeTrackIds()).thenReturn(Set.of());
+
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(1);
+    executor.setMaxPoolSize(1);
+    executor.initialize();
+
+    try {
+      EnrichmentJobPoller poller =
+          new EnrichmentJobPoller(
+              jobRepository, enrichmentService, executor, txManager, eventPublisher, 1, true);
+
+      poller.poll();
+      verifyNoInteractions(jobRepository);
+
+      when(eventPublisher.activeTrackIds()).thenReturn(Set.of(42L));
+      poller.poll();
+      assertThat(ran.await(5, TimeUnit.SECONDS)).isTrue();
+      verify(jobRepository).claimBatchForTracks(1, EnrichmentJob.MAX_ATTEMPTS, Set.of(42L));
+    } finally {
+      executor.shutdown();
     }
   }
 

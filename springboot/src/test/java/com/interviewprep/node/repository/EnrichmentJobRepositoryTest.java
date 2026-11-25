@@ -10,6 +10,7 @@ import com.interviewprep.node.entity.Topic;
 import com.interviewprep.node.entity.Track;
 import jakarta.persistence.EntityManager;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -209,5 +210,90 @@ class EnrichmentJobRepositoryTest {
         .isEqualTo(EnrichmentJobStatus.processing);
     assertThat(enrichmentJobRepository.findById(oldRetry.getId()).orElseThrow().getStatus())
         .isEqualTo(EnrichmentJobStatus.failed);
+  }
+
+  @Test
+  void claimBatchForTracksClaimsOnlySubscribedTracksInLifoOrder() {
+    entityManager
+        .createNativeQuery(
+            "UPDATE enrichment_job SET run_after = clock_timestamp() + interval '1 day'")
+        .executeUpdate();
+
+    Track subscribedTrack = trackRepository.saveAndFlush(new Track(1L, "subscribed", "mid", null));
+    Track idleTrack = trackRepository.saveAndFlush(new Track(1L, "idle", "mid", null));
+
+    Topic topicOld =
+        topicRepository.saveAndFlush(
+            new Topic(subscribedTrack, "Topic Old", "topic old", true, false));
+    Topic topicNew =
+        topicRepository.saveAndFlush(
+            new Topic(subscribedTrack, "Topic New", "topic new", true, false));
+    Topic topicOther =
+        topicRepository.saveAndFlush(
+            new Topic(idleTrack, "Topic Other", "topic other", true, false));
+
+    EnrichmentJob jobOld =
+        enrichmentJobRepository.saveAndFlush(new EnrichmentJob(topicOld.getId()));
+    EnrichmentJob jobNew =
+        enrichmentJobRepository.saveAndFlush(new EnrichmentJob(topicNew.getId()));
+    EnrichmentJob jobOther =
+        enrichmentJobRepository.saveAndFlush(new EnrichmentJob(topicOther.getId()));
+
+    entityManager
+        .createNativeQuery(
+            "UPDATE enrichment_job SET created_at = clock_timestamp() - interval '30 seconds',"
+                + " run_after = clock_timestamp() - interval '1 second' WHERE id = :id")
+        .setParameter("id", jobOld.getId())
+        .executeUpdate();
+    entityManager
+        .createNativeQuery(
+            "UPDATE enrichment_job SET created_at = clock_timestamp() - interval '20 seconds',"
+                + " run_after = clock_timestamp() - interval '1 second' WHERE id = :id")
+        .setParameter("id", jobNew.getId())
+        .executeUpdate();
+    entityManager
+        .createNativeQuery(
+            "UPDATE enrichment_job SET created_at = clock_timestamp() - interval '5 seconds',"
+                + " run_after = clock_timestamp() - interval '1 second' WHERE id = :id")
+        .setParameter("id", jobOther.getId())
+        .executeUpdate();
+
+    List<EnrichmentJobRepository.ClaimedJob> claimed =
+        enrichmentJobRepository.claimBatchForTracks(1, 5, Set.of(subscribedTrack.getId()));
+    entityManager.clear();
+
+    assertThat(claimed)
+        .extracting(EnrichmentJobRepository.ClaimedJob::getId)
+        .containsExactly(jobNew.getId());
+    assertThat(enrichmentJobRepository.findById(jobOther.getId()).orElseThrow().getStatus())
+        .isEqualTo(EnrichmentJobStatus.pending);
+    assertThat(enrichmentJobRepository.findById(jobOld.getId()).orElseThrow().getStatus())
+        .isEqualTo(EnrichmentJobStatus.pending);
+  }
+
+  @Test
+  void hasLiveJobForTrackDetectsPendingProcessingAndExhaustedJobs() {
+    Track track = trackRepository.saveAndFlush(new Track(1L, "goal", "mid", null));
+    Topic topic = topicRepository.saveAndFlush(new Topic(track, "Topic A", "topic a", true, false));
+
+    assertThat(enrichmentJobRepository.hasLiveJobForTrack(track.getId(), 5)).isFalse();
+
+    EnrichmentJob job = enrichmentJobRepository.saveAndFlush(new EnrichmentJob(topic.getId()));
+    assertThat(enrichmentJobRepository.hasLiveJobForTrack(track.getId(), 5)).isTrue();
+
+    entityManager
+        .createNativeQuery(
+            "UPDATE enrichment_job SET status = 'failed', attempts = 5 WHERE id = :id")
+        .setParameter("id", job.getId())
+        .executeUpdate();
+    entityManager.clear();
+    assertThat(enrichmentJobRepository.hasLiveJobForTrack(track.getId(), 5)).isFalse();
+
+    entityManager
+        .createNativeQuery("UPDATE enrichment_job SET status = 'processing' WHERE id = :id")
+        .setParameter("id", job.getId())
+        .executeUpdate();
+    entityManager.clear();
+    assertThat(enrichmentJobRepository.hasLiveJobForTrack(track.getId(), 5)).isTrue();
   }
 }

@@ -5,9 +5,11 @@ import com.interviewprep.node.entity.EnrichmentJobKind;
 import com.interviewprep.node.repository.EnrichmentJobRepository;
 import com.interviewprep.node.repository.EnrichmentJobRepository.ClaimedJob;
 import com.interviewprep.node.service.EnrichmentService;
+import com.interviewprep.node.sse.EnrichmentEventPublisher;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
@@ -59,7 +61,9 @@ class EnrichmentJobPoller {
   private final EnrichmentService enrichmentService;
   private final AsyncTaskExecutor executor;
   private final TransactionTemplate requiredTemplate;
+  private final EnrichmentEventPublisher eventPublisher;
   private final int maxConcurrentJobs;
+  private final boolean requireActiveSubscriber;
   private final AtomicInteger inFlight = new AtomicInteger();
 
   EnrichmentJobPoller(
@@ -67,12 +71,17 @@ class EnrichmentJobPoller {
       EnrichmentService enrichmentService,
       @Qualifier("enrichmentJobExecutor") AsyncTaskExecutor executor,
       PlatformTransactionManager transactionManager,
-      @Value("${enrichment.max-concurrent-jobs:1}") int maxConcurrentJobs) {
+      EnrichmentEventPublisher eventPublisher,
+      @Value("${enrichment.max-concurrent-jobs:1}") int maxConcurrentJobs,
+      @Value("${enrichment.polling.require-active-subscriber:false}")
+          boolean requireActiveSubscriber) {
     this.maxConcurrentJobs = maxConcurrentJobs;
+    this.requireActiveSubscriber = requireActiveSubscriber;
     this.jobRepository = jobRepository;
     this.enrichmentService = enrichmentService;
     this.executor = executor;
     this.requiredTemplate = new TransactionTemplate(transactionManager);
+    this.eventPublisher = eventPublisher;
   }
 
   @Scheduled(fixedDelay = 2000)
@@ -81,8 +90,18 @@ class EnrichmentJobPoller {
     if (free <= 0) {
       return;
     }
-    List<ClaimedJob> claimed =
-        requiredTemplate.execute(status -> jobRepository.claimBatch(free, MAX_ATTEMPTS));
+    List<ClaimedJob> claimed;
+    if (requireActiveSubscriber) {
+      Set<Long> activeTracks = eventPublisher.activeTrackIds();
+      if (activeTracks.isEmpty()) {
+        return;
+      }
+      claimed =
+          requiredTemplate.execute(
+              status -> jobRepository.claimBatchForTracks(free, MAX_ATTEMPTS, activeTracks));
+    } else {
+      claimed = requiredTemplate.execute(status -> jobRepository.claimBatch(free, MAX_ATTEMPTS));
+    }
     for (ClaimedJob job : claimed) {
       inFlight.incrementAndGet();
       CompletableFuture.runAsync(() -> process(job), executor)

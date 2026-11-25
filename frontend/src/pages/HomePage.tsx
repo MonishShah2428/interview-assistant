@@ -4,10 +4,12 @@ import { useTracks } from "../api/queries";
 import { CreateTrackForm } from "../components/CreateTrackForm";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { Skeleton } from "../components/ui";
+import { useSlowLoading } from "../hooks/useSlowLoading";
 import { relativeTime } from "../lib/time";
 
 export function HomePage() {
   const { data: tracks, error, isPending } = useTracks();
+  const slowLoading = useSlowLoading(isPending);
 
   return (
     <div className="min-h-dvh">
@@ -28,6 +30,11 @@ export function HomePage() {
           </h2>
           {isPending ? (
             <div className="grid gap-4 py-5">
+              {slowLoading && (
+                <p className="text-sm text-muted">
+                  Waking up the server (cold start usually takes ~10 seconds)…
+                </p>
+              )}
               <Skeleton className="h-5 w-2/3" />
               <Skeleton className="h-5 w-1/2" />
             </div>

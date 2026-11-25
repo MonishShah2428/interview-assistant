@@ -1,8 +1,10 @@
 package com.interviewprep.track.service;
 
+import com.interviewprep.node.entity.EnrichmentJob;
 import com.interviewprep.node.entity.Topic;
 import com.interviewprep.node.entity.TopicEdge;
 import com.interviewprep.node.entity.Track;
+import com.interviewprep.node.repository.EnrichmentJobRepository;
 import com.interviewprep.node.repository.TopicEdgeRepository;
 import com.interviewprep.node.repository.TopicRepository;
 import com.interviewprep.node.repository.TrackRepository;
@@ -42,6 +44,7 @@ public class TrackService {
   private final TrackRepository trackRepository;
   private final TopicRepository topicRepository;
   private final TopicEdgeRepository topicEdgeRepository;
+  private final EnrichmentJobRepository enrichmentJobRepository;
   private final TrackDecomposer trackDecomposer;
   private final LabelNormalizer labelNormalizer;
   private final TransactionTemplate requiredTemplate;
@@ -50,12 +53,14 @@ public class TrackService {
       TrackRepository trackRepository,
       TopicRepository topicRepository,
       TopicEdgeRepository topicEdgeRepository,
+      EnrichmentJobRepository enrichmentJobRepository,
       TrackDecomposer trackDecomposer,
       LabelNormalizer labelNormalizer,
       PlatformTransactionManager transactionManager) {
     this.trackRepository = trackRepository;
     this.topicRepository = topicRepository;
     this.topicEdgeRepository = topicEdgeRepository;
+    this.enrichmentJobRepository = enrichmentJobRepository;
     this.trackDecomposer = trackDecomposer;
     this.labelNormalizer = labelNormalizer;
     this.requiredTemplate = new TransactionTemplate(transactionManager);
@@ -109,8 +114,11 @@ public class TrackService {
         roots.stream()
             .map(root -> toTopicNodeView(root, childrenByParentId, new HashSet<>()))
             .toList();
+    boolean enrichmentQueued =
+        enrichmentJobRepository.hasLiveJobForTrack(trackId, EnrichmentJob.MAX_ATTEMPTS);
 
-    return new TrackView(track.getId(), track.getGoal(), track.getLevel(), rootViews);
+    return new TrackView(
+        track.getId(), track.getGoal(), track.getLevel(), rootViews, enrichmentQueued);
   }
 
   private Map<Long, List<Topic>> groupChildrenByParent(List<Topic> allTopics) {
@@ -197,7 +205,8 @@ public class TrackService {
         track.getId(),
         track.getGoal(),
         track.getLevel(),
-        roots.stream().map(this::toTopicNodeView).toList());
+        roots.stream().map(this::toTopicNodeView).toList(),
+        false);
   }
 
   private TopicNodeView toTopicNodeView(Topic topic) {

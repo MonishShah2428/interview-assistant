@@ -4,11 +4,12 @@ import clsx from "clsx";
 import { ArrowLeft, Menu, X } from "lucide-react";
 import { useExpandTopic, useRefreshResources, useTrack } from "../api/queries";
 import { ApiError } from "../api/client";
-import type { EnrichmentEvent, Track } from "../api/types";
+import type { EnrichmentEvent, TopicNode, Track } from "../api/types";
 import { TrackRail } from "../components/TrackRail";
 import { TopicPanel } from "../components/TopicPanel";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { Button, Skeleton, StatusDot, topicDisplayStatus } from "../components/ui";
+import { useSlowLoading } from "../hooks/useSlowLoading";
 import { useTrackEvents, type ConnectionState } from "../hooks/useTrackEvents";
 import { indexTree } from "../lib/tree";
 import { useToast } from "../lib/toast";
@@ -19,6 +20,14 @@ function withId(set: Set<number>, id: number, present: boolean): Set<number> {
   if (present) next.add(id);
   else next.delete(id);
   return next;
+}
+
+function hasPendingEnrichment(nodes: TopicNode[], depth = 0): boolean {
+  return nodes.some(
+    (n) =>
+      (depth > 0 && (n.enrichmentStatus === "pending" || n.enrichmentStatus === "enriching")) ||
+      hasPendingEnrichment(n.children, depth + 1),
+  );
 }
 
 export function WorkspacePage() {
@@ -77,7 +86,11 @@ export function WorkspacePage() {
     [toast],
   );
 
-  const connection = useTrackEvents(trackId, onEvent);
+  const hasActiveWork =
+    Boolean(track && (track.enrichmentQueued || hasPendingEnrichment(track.roots))) || refreshingIds.size > 0;
+  const handleIdle = useCallback(() => setRefreshingIds(new Set()), []);
+  const connection = useTrackEvents(trackId, hasActiveWork, onEvent, handleIdle);
+  const slowLoading = useSlowLoading(isPending || !track);
 
   const select = (id: number) => {
     setDrawerOpen(false);
@@ -215,7 +228,14 @@ export function WorkspacePage() {
                 onSelect={select}
               />
             ) : isPending || !track ? (
-              <RailSkeleton />
+              <div className="grid gap-4">
+                {slowLoading && (
+                  <p className="text-sm text-muted">
+                    Waking up the server (cold start usually takes ~10 seconds)…
+                  </p>
+                )}
+                <RailSkeleton />
+              </div>
             ) : (
               <TrackOverview track={track} pendingExpandIds={pendingExpandIds} onSelect={select} onExpand={expand} />
             )}
@@ -279,14 +299,28 @@ function TrackOverview({
 }
 
 function ConnectionIndicator({ state }: { state: ConnectionState }) {
+  if (state === "idle") return null;
   const live = state === "live";
+  const paused = state === "paused";
+  const title = paused
+    ? "Enrichment paused while tab is hidden"
+    : live
+      ? "Updates arrive as they happen"
+      : "Reconnecting to live updates";
+  const label = paused ? "Paused" : live ? "Live" : state === "connecting" ? "Connecting" : "Reconnecting";
   return (
     <span
-      className={clsx("hidden shrink-0 items-center gap-1.5 text-xs sm:flex", live ? "text-muted" : "text-working")}
-      title={live ? "Updates arrive as they happen" : "Reconnecting to live updates"}
+      className={clsx("hidden shrink-0 items-center gap-1.5 text-xs sm:flex", live || paused ? "text-muted" : "text-working")}
+      title={title}
     >
-      <span className={clsx("size-1.5 rounded-full", live ? "bg-ready" : "bg-working pulse-dot")} aria-hidden />
-      {live ? "Live" : state === "connecting" ? "Connecting" : "Reconnecting"}
+      <span
+        className={clsx(
+          "size-1.5 rounded-full",
+          live ? "bg-ready" : paused ? "bg-muted" : "bg-working pulse-dot",
+        )}
+        aria-hidden
+      />
+      {label}
     </span>
   );
 }

@@ -28,6 +28,7 @@ export interface Track {
   goal: string;
   level: string;
   roots: TopicNode[];
+  enrichmentQueued: boolean;
 }
 
 export interface ResourceDetail {

@@ -3,9 +3,11 @@ package com.interviewprep.track.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
+import com.interviewprep.node.entity.EnrichmentJob;
 import com.interviewprep.node.entity.Topic;
 import com.interviewprep.node.entity.TopicEdge;
 import com.interviewprep.node.entity.Track;
+import com.interviewprep.node.repository.EnrichmentJobRepository;
 import com.interviewprep.node.repository.TopicEdgeRepository;
 import com.interviewprep.node.repository.TopicRepository;
 import com.interviewprep.node.repository.TrackRepository;
@@ -37,6 +39,7 @@ class TrackServiceTest {
   @Autowired private TrackRepository trackRepository;
   @Autowired private TopicRepository topicRepository;
   @Autowired private TopicEdgeRepository topicEdgeRepository;
+  @Autowired private EnrichmentJobRepository enrichmentJobRepository;
   @Autowired private LabelNormalizer labelNormalizer;
   @Autowired private PlatformTransactionManager transactionManager;
 
@@ -48,6 +51,7 @@ class TrackServiceTest {
         trackRepository,
         topicRepository,
         topicEdgeRepository,
+        enrichmentJobRepository,
         stub,
         labelNormalizer,
         transactionManager);
@@ -124,10 +128,15 @@ class TrackServiceTest {
 
     TrackView tree = trackService.getTrack(created.id());
 
+    assertThat(created.enrichmentQueued()).isFalse();
+    assertThat(tree.enrichmentQueued()).isFalse();
     assertThat(tree.roots()).hasSize(1);
     TopicNodeView root = tree.roots().get(0);
     assertThat(root.id()).isEqualTo(rootId);
     assertThat(root.children()).extracting("label").containsExactly("Indexing");
+
+    enrichmentJobRepository.saveAndFlush(new EnrichmentJob(child.getId()));
+    assertThat(trackService.getTrack(created.id()).enrichmentQueued()).isTrue();
   }
 
   @Test

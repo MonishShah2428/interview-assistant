@@ -2,6 +2,7 @@ package com.interviewprep.node.repository;
 
 import com.interviewprep.node.entity.EnrichmentJob;
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -55,6 +56,45 @@ public interface EnrichmentJobRepository extends JpaRepository<EnrichmentJob, Lo
       nativeQuery = true)
   List<ClaimedJob> claimBatch(
       @Param("batchSize") int batchSize, @Param("maxAttempts") int maxAttempts);
+
+  /**
+   * Track-scoped variant of {@link #claimBatch}: claims LIFO jobs only for topics belonging to
+   * {@code trackIds} (the caller guarantees {@code trackIds} is non-empty). Used on Cloud Run under
+   * request-based billing so only tracks with a live SSE client get claimed.
+   */
+  @Query(
+      value =
+          """
+          WITH picked AS MATERIALIZED (
+            SELECT j.id FROM enrichment_job j
+            JOIN topic t ON t.id = j.topic_id
+            WHERE j.status IN ('pending', 'failed')
+              AND j.attempts < :maxAttempts
+              AND j.run_after <= clock_timestamp()
+              AND t.track_id IN (:trackIds)
+            ORDER BY j.created_at DESC, j.id DESC
+            LIMIT :batchSize
+            FOR UPDATE OF j SKIP LOCKED
+          )
+          UPDATE enrichment_job j
+          SET status = 'processing', updated_at = clock_timestamp()
+          FROM picked
+          WHERE j.id = picked.id
+          RETURNING j.id, j.topic_id, j.kind
+          """,
+      nativeQuery = true)
+  List<ClaimedJob> claimBatchForTracks(
+      @Param("batchSize") int batchSize,
+      @Param("maxAttempts") int maxAttempts,
+      @Param("trackIds") Collection<Long> trackIds);
+
+  /** Whether any topic in {@code trackId} has a live enrichment job. */
+  @Query(
+      "SELECT COUNT(j) > 0 FROM EnrichmentJob j, Topic t WHERE j.topicId = t.id"
+          + " AND t.track.id = :trackId AND (j.status ="
+          + " com.interviewprep.node.entity.EnrichmentJobStatus.processing OR j.attempts <"
+          + " :maxAttempts)")
+  boolean hasLiveJobForTrack(@Param("trackId") Long trackId, @Param("maxAttempts") int maxAttempts);
 
   /**
    * Returns jobs a dead process left {@code processing} to the queue as {@code failed} and due now.

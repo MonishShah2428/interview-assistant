@@ -20,6 +20,7 @@ function trackRefetchInterval(track: Track | undefined): number | false {
   if (!track) return false;
   if (anyNode(track.roots, (n) => n.expansionStatus === "expanding")) return 2000;
   if (
+    track.enrichmentQueued ||
     anyNode(
       track.roots,
       (n, depth) => depth > 0 && (n.enrichmentStatus === "pending" || n.enrichmentStatus === "enriching"),

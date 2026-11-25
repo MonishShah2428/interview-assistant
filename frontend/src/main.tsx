@@ -17,7 +17,11 @@ try {
 
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { staleTime: 5000, retry: (count, error) => !("status" in error && error.status === 404) && count < 2 },
+    queries: {
+      staleTime: 5000,
+      refetchOnWindowFocus: false,
+      retry: (count, error) => !("status" in error && error.status === 404) && count < 2,
+    },
   },
 });
 

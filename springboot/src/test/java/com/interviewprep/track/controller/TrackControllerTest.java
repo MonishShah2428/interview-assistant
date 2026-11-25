@@ -63,7 +63,8 @@ class TrackControllerTest {
   @Test
   void validRequestReturns201() throws Exception {
     when(trackService.createTrack(anyString(), anyString()))
-        .thenReturn(new TrackView(1L, "prep me for an SDE II role", "mid", java.util.List.of()));
+        .thenReturn(
+            new TrackView(1L, "prep me for an SDE II role", "mid", java.util.List.of(), false));
 
     mockMvc
         .perform(
